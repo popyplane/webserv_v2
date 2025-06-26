@@ -12,7 +12,7 @@
 # include "../config/ServerStructures.hpp"
 
 // Forward declaration to avoid circular dependency.
-class Server;
+class Server; // Needs to be here because Connection holds a Server*
 
 // Represents a single client connection, handling request parsing, response generation, and CGI interaction.
 class Connection : public Socket {
@@ -30,9 +30,9 @@ private:
     HttpRequest         _request; // Stores the parsed HTTP request.
     HttpResponse        _response; // Stores the HTTP response to be sent.
     ConnectionState     _state; // Current state of the connection.
-    Server*             _server; // Pointer to the parent server for configuration access.
+    Server* _server; // Pointer to the parent server for configuration access.
 
-    CGIHandler*         _cgiHandler; // Manages the CGI process if applicable.
+    CGIHandler* _cgiHandler; // Manages the CGI process if applicable.
     bool                _isCgiRequest; // Flag indicating if the current request is for CGI.
 
     std::vector<char>   _requestBuffer; // Buffer for incoming raw request data.

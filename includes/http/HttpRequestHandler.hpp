@@ -28,11 +28,12 @@ public:
     // Checks if the request should be handled by a CGI script.
     bool isCgiRequest(const MatchedConfig& matchedConfig) const;
 
-private:
     // Generates an HTTP error response, optionally using custom error pages.
     HttpResponse _generateErrorResponse(int statusCode,
                                        const ServerConfig* serverConfig,
                                        const LocationConfig* locationConfig);
+                                       
+private:
     // Resolves the full file system path for a given URI.
     std::string _resolvePath(const std::string& uriPath,
                             const ServerConfig* serverConfig,
