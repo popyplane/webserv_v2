@@ -16,7 +16,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    std::string config_path = (argc == 2) ? argv[1] : "configs/minimal.conf";
+    std::string config_path = (argc == 2) ? argv[1] : "configs/default.conf";
     std::vector<ServerConfig> serverConfigs;
 
     try {

@@ -1,9 +1,11 @@
 #include "../../includes/server/Connection.hpp"
-#include "../../includes/server/Server.hpp" // Needs full definition of Server
-#include "../../includes/webserv.hpp" // For BUFF_SIZE
+#include "../../includes/server/Server.hpp" 
+#include "../../includes/server/divers.hpp" 
+#include "../../includes/http/RequestDispatcher.hpp"
+#include "../../includes/webserv.hpp"
 #include <iostream>
-#include <unistd.h> // For read/write
-#include <vector> // Ensure vector is included for _requestBuffer
+#include <unistd.h> 
+#include <vector> 
 
 // Constructor: Initializes a new connection.
 Connection::Connection(Server* server) 
@@ -15,37 +17,33 @@ Connection::Connection(Server* server)
 Connection::~Connection() {
     if (_cgiHandler) {
         delete _cgiHandler;
-        _cgiHandler = NULL; // Good practice to nullify after delete
+        _cgiHandler = NULL; 
     }
 }
 
 // Handles reading data from the client socket.
 void Connection::handleRead() {
-    char buffer[BUFF_SIZE]; // BUFF_SIZE is now defined in divers.hpp
-    // Read data from the socket.
+    char buffer[BUFF_SIZE]; 
     ssize_t bytes_read = read(getSocketFD(), buffer, BUFF_SIZE - 1);
 
     if (bytes_read > 0) {
         _requestBuffer.insert(_requestBuffer.end(), buffer, buffer + bytes_read);
-        _parser.appendData(buffer, bytes_read); // Pass buffer and its length
+        _parser.appendData(buffer, bytes_read); 
 
-        _parser.parse(); // Assuming this handles partial reads correctly
+        _parser.parse(); 
 
-        // If the request is complete, process it.
         if (_parser.isComplete()) {
-            _request = _parser.getRequest(); // Get the parsed request
-            _processRequest(); // Process the request and potentially change state to WRITING
-        } else if (_parser.hasError()) { // Check for parsing errors
+            _request = _parser.getRequest(); 
+            _processRequest(); 
+        } else if (_parser.hasError()) { 
             std::cerr << "Request parsing error. Closing connection." << std::endl;
             setState(CLOSING);
         }
     } else if (bytes_read == 0) {
-        // Client closed the connection gracefully
-        std::cout << "Client closed connection on FD: " << getSocketFD() << std::endl; // Debug print
+        std::cout << "Client closed connection on FD: " << getSocketFD() << std::endl; 
         setState(CLOSING);
-    } else { // bytes_read < 0
-        // Error during read (e.g., connection reset, broken pipe)
-        std::cerr << "Error reading from socket FD: " << getSocketFD() << std::endl; // Debug print
+    } else { 
+        std::cerr << "Error reading from socket FD: " << getSocketFD() << std::endl; 
         setState(CLOSING);
     }
 }
@@ -57,26 +55,35 @@ void Connection::handleWrite() {
     ssize_t bytes_sent = write(getSocketFD(), raw_response.c_str(), raw_response.length());
 
     if (bytes_sent < 0) {
-        // Error during write.
-        std::cerr << "Error writing to socket FD: " << getSocketFD() << std::endl; // Debug print
+        std::cerr << "Error writing to socket FD: " << getSocketFD() << std::endl; 
         setState(CLOSING);
     } else if (static_cast<size_t>(bytes_sent) == raw_response.length()) {
-        // Entire response sent.
-        std::cout << "Response sent completely on FD: " << getSocketFD() << std::endl; // Debug print
+        std::cout << "Response sent completely on FD: " << getSocketFD() << std::endl; 
         setState(CLOSING); 
     } else {
-        std::cerr << "Partial write on FD: " << getSocketFD() << ". Sent " << bytes_sent << " of " << raw_response.length() << std::endl; // Debug print
+        std::cerr << "Partial write on FD: " << getSocketFD() << ". Sent " << bytes_sent << " of " << raw_response.length() << std::endl; 
     }
 }
 
 // Processes the parsed HTTP request.
 void Connection::_processRequest() {
-    GlobalConfig globalConfig;
-    globalConfig.servers = _server->getConfigs(); 
-    RequestDispatcher dispatcher(globalConfig);
-    
-    MatchedConfig matchedConfig = dispatcher.dispatch(_request, "", 0); 
-    
+    ServerConfig* currentServerConfig = this->getServerBlock(); 
+    if (!currentServerConfig) {
+        std::cerr << "ERROR: Connection::_processRequest: currentServerConfig is NULL for FD: " << getSocketFD() << ". Cannot process request." << std::endl;
+        HttpRequestHandler handler;
+        _response = handler._generateErrorResponse(500, NULL, NULL); 
+        setState(WRITING);
+        _server->updateFdEvents(getSocketFD(), POLLOUT);
+        return;
+    }
+    std::cout << "DEBUG: Connection::_processRequest: Processing request for server: " << currentServerConfig->serverNames[0] << " on port: " << currentServerConfig->port << std::endl;
+
+    MatchedConfig matchedConfig;
+    matchedConfig.server_config = currentServerConfig; // Set the known server config
+
+    // Call the static method to find the location within the known server config
+    matchedConfig.location_config = RequestDispatcher::findMatchingLocation(_request, *currentServerConfig); 
+
     const LocationConfig* location = matchedConfig.location_config;
     
     if (location && !location->cgiExecutables.empty()) { 
@@ -89,7 +96,7 @@ void Connection::_processRequest() {
         setState(WRITING); 
 
         _server->updateFdEvents(getSocketFD(), POLLOUT);
-        std::cout << "Request processed (non-CGI), transitioning to WRITING on FD: " << getSocketFD() << std::endl; // Debug print
+        std::cout << "Request processed (non-CGI), transitioning to WRITING on FD: " << getSocketFD() << std::endl; 
     }
     _requestBuffer.clear(); 
     _parser.reset(); 
@@ -97,24 +104,34 @@ void Connection::_processRequest() {
 
 // Initiates the CGI process for the current request.
 void Connection::executeCGI() {
-    GlobalConfig globalConfig;
-    globalConfig.servers = _server->getConfigs();
-    RequestDispatcher dispatcher(globalConfig);
-    MatchedConfig matchedConfig = dispatcher.dispatch(_request, "", 0);
-    
+    ServerConfig* currentServerConfig = this->getServerBlock();
+    if (!currentServerConfig) {
+        std::cerr << "ERROR: Connection::executeCGI: currentServerConfig is NULL for FD: " << getSocketFD() << ". Cannot execute CGI." << std::endl;
+        HttpRequestHandler handler;
+        _response = handler._generateErrorResponse(500, NULL, NULL);
+        setState(WRITING);
+        _server->updateFdEvents(getSocketFD(), POLLOUT);
+        return;
+    }
+
+    MatchedConfig matchedConfig;
+    matchedConfig.server_config = currentServerConfig; // Set the known server config
+
+    // Call the static method to find the location within the known server config
+    matchedConfig.location_config = RequestDispatcher::findMatchingLocation(_request, *currentServerConfig); 
+
     _cgiHandler = new CGIHandler(_request, matchedConfig.server_config, matchedConfig.location_config);
     
     if (!_cgiHandler->start()) {
-        std::cerr << "CGI failed to start for FD: " << getSocketFD() << std::endl; // Debug print
+        std::cerr << "ERROR: CGI failed to start for FD: " << getSocketFD() << std::endl; 
         HttpRequestHandler handler;
-        // FIX: Call the now public _generateErrorResponse method
         _response = handler._generateErrorResponse(500, matchedConfig.server_config, matchedConfig.location_config);
         setState(WRITING); 
         _server->updateFdEvents(getSocketFD(), POLLOUT);
         delete _cgiHandler; 
         _cgiHandler = NULL;
     } else {
-        std::cout << "CGI process started for FD: " << getSocketFD() << std::endl; // Debug print
+        std::cout << "DEBUG: CGI process started for FD: " << getSocketFD() << std::endl; 
     }
 }
 
@@ -127,7 +144,7 @@ void Connection::finalizeCGI() {
         setState(WRITING); 
 
         _server->updateFdEvents(getSocketFD(), POLLOUT);
-        std::cout << "CGI finalized, transitioning to WRITING on FD: " << getSocketFD() << std::endl; // Debug print
+        std::cout << "CGI finalized, transitioning to WRITING on FD: " << getSocketFD() << std::endl; 
     }
 }
 
