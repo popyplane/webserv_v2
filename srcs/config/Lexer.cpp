@@ -15,7 +15,7 @@
 // Reads the content of a file into a string.
 bool    readFile(const std::string &fileName, std::string &out)
 {
-    std::ifstream   file(fileName);
+    std::ifstream   file(fileName.c_str());
     std::string     buffer;
 
     if (!file)

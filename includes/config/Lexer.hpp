@@ -18,6 +18,7 @@
 # include <sstream>
 # include <iostream>
 # include <cctype>
+# include <vector>
 # include "token.hpp"
 
 // Reads the content of a file into a string.

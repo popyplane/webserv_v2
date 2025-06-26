@@ -42,6 +42,10 @@ class BlockNode : public ASTnode {
 		std::vector<ASTnode*>		children; // Child nodes within the block (directives or nested blocks).
 
 		BlockNode() : ASTnode() {}
+		~BlockNode() {
+        	for (size_t i = 0; i < children.size(); ++i)
+            	delete children[i];
+    	}
 };
 
 #endif

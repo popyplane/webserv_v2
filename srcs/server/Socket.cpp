@@ -40,29 +40,29 @@ void	Socket::createSocket(int ai_family, int ai_socktype, int ai_protocol) {
 	int yes = 1;
 
 	if ((_sockfd = socket(ai_family, ai_socktype, ai_protocol)) < 0)
-		throw ("error with socket");
+		throw std::runtime_error("error with socket");
 	// Allow reuse of local addresses.
 	if (setsockopt(_sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) < 0)
-		throw ("error with socket opt");
+		throw std::runtime_error("error with socket opt");
 }
 
 // Binds the socket to a specified IP address and port.
 void	Socket::bindSocket(struct sockaddr* ai_addr, socklen_t ai_addrlen) {
 	if (bind(_sockfd, ai_addr, ai_addrlen) < 0)
-		throw ("error with socket bind");
+		throw std::runtime_error("error with socket bind");
 }
 
 // Sets the socket to listen for incoming connections.
 void	Socket::listenOnSocket(void) {
 	if (listen(_sockfd, BACKLOG) < 0)
-		throw ("error with listen socket");
+		throw std::runtime_error("error with listen socket");
 	std::cout << "listen socket : " << _sockfd << std::endl;
 }
 
 // Accepts an incoming connection on the listening socket.
 void	Socket::acceptConnection(int listenSock) {
 	if ((_sockfd = accept(listenSock, (struct sockaddr*)&_addr, &_sin_size)) < 0)
-		throw ("error with accept socket");
+		throw std::runtime_error("error with accept socket");
 }
 
 // Prints information about the accepted connection to console.
@@ -85,7 +85,7 @@ void	Socket::initListenSocket(const char* port) {
     base.ai_flags = AI_PASSIVE;
 	// Get address information for the given port.
 	if (getaddrinfo(NULL, port, &base, &ai) != 0)
-		throw ("error with init socket");
+		throw std::runtime_error("error with init socket");
 	// Loop through all results and try to create and bind a socket.
 	for (p = ai; p != NULL; p = p->ai_next)
 	{
@@ -107,7 +107,7 @@ void	Socket::initListenSocket(const char* port) {
 	freeaddrinfo(ai);
 	// If no socket was successfully bound, throw an error.
 	if (p == NULL)
-		throw ("error with socket bind");
+		throw std::runtime_error("error with socket bind");
 	listenOnSocket();
 }
 
@@ -117,7 +117,7 @@ void    Socket::closeSocket(void) {
 
     n = close(this->getSocketFD());
     if (n < 0)
-        throw ("Error with socket close");
+        throw std::runtime_error("Error with socket close");
     std::cout << "SOCKET " << this->getSocketFD() << " CLOSED" << std::endl;
 }
 
@@ -134,7 +134,7 @@ ServerConfig*    Socket::getServerBlock(void) {
 // Sets the socket file descriptor.
 void    Socket::setSocketFD(int fd) {
     if (fd < 0)
-        throw ("Error fd incorrect");
+        throw std::runtime_error("Error fd incorrect");
     this->_sockfd = fd;
 }
 

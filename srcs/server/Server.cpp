@@ -23,7 +23,8 @@ Server::~Server() {
 void Server::setupListenSockets() {
     for (size_t i = 0; i < _configs.size(); ++i) {
         Socket* newSocket = new Socket();
-        newSocket->initListenSocket(std::to_string(_configs[i].port).c_str());
+        std::cout << (StringUtils::longToString(_configs[i].port)).c_str()<< std::endl;
+        newSocket->initListenSocket((StringUtils::longToString(_configs[i].port)).c_str());
         _listenSockets.push_back(newSocket);
         _addFdToPoll(newSocket->getSocketFD(), POLLIN);
     }
@@ -149,7 +150,8 @@ void Server::_reapClosedConnections() {
             _removeFdFromPoll(fd);
             close(fd);
             delete it->second;
-            it = _connections.erase(it);
+            _connections.erase(it);
+            ++it;
         } else {
             ++it;
         }
