@@ -23,7 +23,9 @@ Server::~Server() {
 void Server::setupListenSockets() {
     for (size_t i = 0; i < _configs.size(); ++i) {
         Socket* newSocket = new Socket();
-        std::cout << (StringUtils::longToString(_configs[i].port)).c_str()<< std::endl;
+        std::cout << "Original port from config: " << _configs[i].port << std::endl;
+        std::string port_str = StringUtils::longToString(_configs[i].port);
+        std::cout << "Converted port string: '" << port_str << "'" << std::endl;
         newSocket->initListenSocket((StringUtils::longToString(_configs[i].port)).c_str());
         _listenSockets.push_back(newSocket);
         _addFdToPoll(newSocket->getSocketFD(), POLLIN);

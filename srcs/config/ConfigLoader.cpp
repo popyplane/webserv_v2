@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   ConfigLoader.cpp                                   :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: baptistevieilhescaze <baptistevieilhesc    +#+  +:+       +#+        */
+/*   By: bvieilhe <bvieilhe@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/06/23 11:22:17 by baptistevie       #+#    #+#             */
-/*   Updated: 2025/06/24 23:20:32 by baptistevie      ###   ########.fr       */
+/*   Updated: 2025/06/26 21:15:21 by bvieilhe         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -351,8 +351,8 @@ void ConfigLoader::handleListenDirective(const DirectiveNode* directive, ServerC
 				throw std::invalid_argument("Port must be a number.");
 			}
 			long port_long = StringUtils::stringToLong(port_str);
-			if (port_long < 1 || port_long > 65535) {
-				throw std::out_of_range("Port number out of valid range (1-65535).");
+			if (port_long < 1024 || port_long > 65535) {
+				throw std::out_of_range("Port number out of valid range (1024-65535).");
 			}
 			serverConfig.port = static_cast<int>(port_long);
 		} catch (const std::invalid_argument& e) {
