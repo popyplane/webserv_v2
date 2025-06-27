@@ -6,7 +6,7 @@
 /*   By: bvieilhe <bvieilhe@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/06/25 09:57:18 by baptistevie       #+#    #+#             */
-/*   Updated: 2025/06/26 23:43:10 by bvieilhe         ###   ########.fr       */
+/*   Updated: 2025/06/27 00:50:12 by bvieilhe         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -185,9 +185,12 @@ HttpResponse HttpRequestHandler::_generateErrorResponse(int statusCode,
 }
 
 // Debug prints added here
+
 std::string HttpRequestHandler::_resolvePath(const std::string& uriPath,
                                              const ServerConfig* serverConfig,
                                              const LocationConfig* locationConfig) const {
+    // Determine the effective root directory.
+    // This will be './www' if using your default.conf
     std::string effectiveRoot = _getEffectiveRoot(serverConfig, locationConfig);
     std::cout << "DEBUG: _resolvePath: URI: '" << uriPath << "', Effective Root: '" << effectiveRoot << "'" << std::endl;
 
@@ -196,66 +199,37 @@ std::string HttpRequestHandler::_resolvePath(const std::string& uriPath,
         return "";
     }
 
-    // Remove trailing slash from effectiveRoot if it exists and is not just "/"
+    // Ensure the effectiveRoot does not have a trailing slash, UNLESS it's just "/"
     if (effectiveRoot.length() > 1 && StringUtils::endsWith(effectiveRoot, "/")) {
         effectiveRoot = effectiveRoot.substr(0, effectiveRoot.length() - 1);
         std::cout << "DEBUG: _resolvePath: Trimmed effectiveRoot to: '" << effectiveRoot << "'" << std::endl;
     }
 
-    std::string relativeSuffix = uriPath;
+    // Construct the final file system path.
+    // The uriPath starts with '/' (e.g., "/html/about.html", "/images/logo.jpg").
+    // effectiveRoot is like "./www".
+    // We need to combine them carefully to avoid "//" or missing slash.
 
-    if (locationConfig) {
-        std::cout << "DEBUG: _resolvePath: Using locationConfig with path: '" << locationConfig->path << "'" << std::endl;
-        if (StringUtils::startsWith(uriPath, locationConfig->path)) {
-            if (StringUtils::endsWith(locationConfig->path, "/")) {
-                relativeSuffix = uriPath.substr(locationConfig->path.length());
-                if (!relativeSuffix.empty() && relativeSuffix[0] != '/') {
-                    relativeSuffix = "/" + relativeSuffix;
-                } else if (relativeSuffix.empty() && uriPath == locationConfig->path) {
-                    relativeSuffix = "/"; // If URI exactly matches location path ending with '/', treat as root of location
-                }
-            } else if (uriPath == locationConfig->path) {
-                // If URI exactly matches location path without trailing slash (e.g., /html for location /html)
-                // Append the last part of the location path to the root.
-                // This logic might need refinement depending on desired exact behavior for exact matches.
-                size_t lastSlash = locationConfig->path.rfind('/');
-                if (lastSlash != std::string::npos) {
-                    relativeSuffix = locationConfig->path.substr(lastSlash); // e.g., if /path/to, relativeSuffix becomes /to
-                } else {
-                    relativeSuffix = "/" + locationConfig->path; // e.g., if /foo, relativeSuffix becomes /foo
-                }
-            } else {
-                relativeSuffix = uriPath.substr(locationConfig->path.length());
-                if (!relativeSuffix.empty() && relativeSuffix[0] != '/') {
-                    relativeSuffix = "/" + relativeSuffix;
-                }
-            }
-        } else {
-            // If URI does not start with locationConfig->path, but a location config is matched,
-            // this might indicate a mismatch or a fallback. For simplicity, we make sure it starts with '/'
-            if (!relativeSuffix.empty() && relativeSuffix[0] != '/') {
-                relativeSuffix = "/" + relativeSuffix;
-            }
+    std::string fullPath = effectiveRoot;
+
+    // If uriPath is "/" and effectiveRoot is not empty, ensure a single trailing slash.
+    if (uriPath == "/") {
+        if (!fullPath.empty() && fullPath[fullPath.length() - 1] != '/') {
+            fullPath += "/";
         }
-    } else { // No specific location config matched
-        std::cout << "DEBUG: _resolvePath: No specific locationConfig matched." << std::endl;
-        if (!relativeSuffix.empty() && relativeSuffix[0] != '/') {
-            relativeSuffix = "/" + relativeSuffix;
-        } else if (relativeSuffix.empty()) { // Handle requests to root like ""
-            relativeSuffix = "/";
+    } else {
+        // Append uriPath to effectiveRoot, ensuring only one slash in between.
+        if (!fullPath.empty() && fullPath[fullPath.length() - 1] == '/' && uriPath[0] == '/') {
+            fullPath += uriPath.substr(1); // Remove leading slash from uriPath if root has trailing slash
+        } else if (!fullPath.empty() && fullPath[fullPath.length() - 1] != '/' && uriPath[0] != '/') {
+            fullPath += "/" + uriPath; // Add a slash if both are missing it
+        } else {
+            fullPath += uriPath; // One of them already has the slash, or both are empty
         }
     }
     
-    std::string finalPath;
-    // Handle root path variations:
-    if (relativeSuffix == "/" && effectiveRoot.length() > 0 && effectiveRoot[effectiveRoot.length() - 1] != '/') {
-        finalPath = effectiveRoot + "/";
-    } else {
-        finalPath = effectiveRoot + relativeSuffix;
-    }
-
-    std::cout << "DEBUG: _resolvePath: Final resolved path: '" << finalPath << "'" << std::endl;
-    return finalPath;
+    std::cout << "DEBUG: _resolvePath: Final resolved path: '" << fullPath << "'" << std::endl;
+    return fullPath;
 }
 
 HttpResponse HttpRequestHandler::_handleGet(const HttpRequest& request,

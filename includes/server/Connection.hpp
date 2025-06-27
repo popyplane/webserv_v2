@@ -1,69 +1,80 @@
 #ifndef CONNECTION_HPP
 # define CONNECTION_HPP
 
-# include "../http/HttpRequestParser.hpp"
-# include "../http/HttpRequest.hpp"
-# include "../http/HttpResponse.hpp"
-# include "../http/HttpRequestHandler.hpp"
-# include "../http/RequestDispatcher.hpp"
-# include "../http/CGIHandler.hpp"
-# include "divers.hpp"
-# include "Socket.hpp"
-# include "../config/ServerStructures.hpp"
+#include <vector>
+#include <string>
 
-// Forward declaration to avoid circular dependency.
-class Server; // Needs to be here because Connection holds a Server*
+#include "Socket.hpp"
+#include "../http/HttpRequest.hpp"
+#include "../http/HttpResponse.hpp"
+#include "../http/HttpRequestParser.hpp"
+#include "../http/CGIHandler.hpp"
+#include "../config/ServerStructures.hpp" // For ServerConfig
 
-// Represents a single client connection, handling request parsing, response generation, and CGI interaction.
+
+// Forward declaration to break circular dependency
+class Server;
+
+// Represents a single client connection to the server.
 class Connection : public Socket {
 public:
-    // Enum to track the state of the connection during request processing.
+    // Enum to represent the current state of the connection.
     enum ConnectionState {
-        READING, // Currently reading data from the client.
-        WRITING, // Currently writing data to the client.
-        HANDLING_CGI, // Waiting for or interacting with a CGI process.
-        CLOSING // Connection is being closed.
+        READING,         // Reading client request.
+        HANDLING_CGI,    // Waiting for CGI response.
+        WRITING,         // Writing response to client.
+        CLOSING          // Connection needs to be closed and reaped.
     };
 
-private:
-    HttpRequestParser   _parser; // Parses incoming HTTP request data.
-    HttpRequest         _request; // Stores the parsed HTTP request.
-    HttpResponse        _response; // Stores the HTTP response to be sent.
-    ConnectionState     _state; // Current state of the connection.
-    Server* _server; // Pointer to the parent server for configuration access.
-
-    CGIHandler* _cgiHandler; // Manages the CGI process if applicable.
-    bool                _isCgiRequest; // Flag indicating if the current request is for CGI.
-
-    std::vector<char>   _requestBuffer; // Buffer for incoming raw request data.
-
-public:
-    // Constructor: Initializes a new connection with a reference to the server.
+    // Constructor: Initializes a new connection.
     Connection(Server* server);
-    // Destructor: Cleans up the CGI handler if it exists.
-    virtual ~Connection();
 
-    // Handles reading data from the client socket.
+    // Destructor: Cleans up connection resources.
+    ~Connection();
+
+    // Handles incoming data from the client socket.
     void handleRead();
-    // Handles writing data to the client socket.
+
+    // Handles sending outgoing data to the client socket.
     void handleWrite();
+
+    // Initiates the CGI process for the current request.
+    void executeCGI();
+
+    // Finalizes CGI handling and prepares the HTTP response.
+    void finalizeCGI();
+
+    // Getters for CGI pipes (for Server to add to pollfds).
+    int getCgiReadFd() const;
+    int getCgiWriteFd() const;
 
     // Returns the current state of the connection.
     ConnectionState getState() const;
+
     // Sets the state of the connection.
     void setState(ConnectionState state);
 
     // Checks if the current request is a CGI request.
     bool isCGI() const;
-    // Initiates the CGI process for the current request.
-    void executeCGI();
+
     // Returns a pointer to the CGI handler.
     CGIHandler* getCgiHandler() const;
-    // Finalizes CGI handling and prepares the response.
-    void finalizeCGI();
 
 private:
-    // Processes the parsed HTTP request, determining if it's static or CGI.
+    HttpRequest         _request;           // The parsed HTTP request.
+    HttpResponse        _response;          // The HTTP response to be sent.
+    HttpRequestParser   _parser;            // Parser for incoming request data.
+    std::vector<char>   _requestBuffer;     // Buffer for raw incoming request data.
+    ConnectionState     _state;             // Current state of the connection.
+    Server* _server;            // Pointer to the parent server (for callbacks like updateFdEvents).
+    CGIHandler* _cgiHandler;        // Pointer to CGI handler if this is a CGI request.
+    bool                _isCgiRequest;      // Flag to indicate if the current request is for CGI.
+
+    // New members to manage partial response sending
+    std::string         _rawResponseToSend;         // The complete raw HTTP response string.
+    size_t              _bytesSentFromRawResponse;  // Number of bytes sent from _rawResponseToSend.
+
+    // Private helper to process the parsed HTTP request.
     void _processRequest();
 };
 
