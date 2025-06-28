@@ -532,9 +532,16 @@ void CGIHandler::handleRead() {
     if (bytes_read > 0) {
         _cgi_response_buffer.insert(_cgi_response_buffer.end(), buffer, buffer + bytes_read);
         std::cout << "DEBUG: CGIHandler::handleRead: Read " << bytes_read << " bytes from CGI stdout. Total buffered: " << _cgi_response_buffer.size() << ". Buffer size after read: " << _cgi_response_buffer.size() << std::endl;
-    } else { // bytes_read == -1, treat as error
-        // std::cerr << "ERROR: CGIHandler::handleRead: Error reading from CGI stdout pipe (FD: " << _fd_stdout[0] << "). Setting CGI_PROCESS_ERROR state." << std::endl;
-        _state = CGIState::CGI_PROCESS_ERROR;
+    } else if (bytes_read == 0) { // EOF received
+        std::cout << "DEBUG: CGIHandler::handleRead: EOF received on CGI stdout pipe (FD: " << _fd_stdout[0] << ")." << std::endl;
+        _cgi_stdout_eof_received = true;
+    } else { // bytes_read == -1
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            std::cout << "DEBUG: CGIHandler::handleRead: No data available on CGI stdout pipe (FD: " << _fd_stdout[0] << "). Try again later." << std::endl;
+        } else {
+            std::cerr << "ERROR: CGIHandler::handleRead: Error reading from CGI stdout pipe (FD: " << _fd_stdout[0] << "): " << strerror(errno) << ". Setting CGI_PROCESS_ERROR state." << std::endl;
+            _state = CGIState::CGI_PROCESS_ERROR;
+        }
     }
 }
 
