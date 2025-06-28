@@ -10,6 +10,7 @@
 /*                                                                            */
 /* ************************************************************************** */
 
+#include <signal.h>
 #include "../../includes/webserv.hpp" // Brings in all necessary headers and constants
 
 // Constructor: Initializes CGIHandler with request and configuration details.

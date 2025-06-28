@@ -105,7 +105,7 @@ bool    Socket::initListenSocket(const char* port) {
     struct addrinfo *p;
 
     memset(&base, 0, sizeof(base));
-    base.ai_family = AF_INET;
+    base.ai_family = AF_UNSPEC;
     base.ai_socktype = SOCK_STREAM;
     base.ai_flags = AI_PASSIVE;
     this->_port = port;

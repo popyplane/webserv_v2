@@ -23,6 +23,7 @@ Connection::Connection(Server* server)
       _bytesSentFromRawResponse(0)
 {
     _parser.reset();
+    
 }
 
 // Destructor: Cleans up the CGI handler if it exists.
@@ -41,6 +42,7 @@ Connection::~Connection() {
 
 // Handles reading data from the client socket.
 void Connection::handleRead() {
+    std::cout << "DEBUG: Entering handleRead() for FD " << getSocketFD() << std::endl;
     char buffer[BUFF_SIZE];
     memset(buffer, 0, BUFF_SIZE); // Ensure buffer is null-terminated for string operations
     ssize_t bytes_read = recv(getSocketFD(), buffer, BUFF_SIZE - 1, 0); // Use recv for sockets
@@ -48,35 +50,47 @@ void Connection::handleRead() {
     std::cout << "DEBUG: handleRead() on FD " << getSocketFD() << ", bytes_read: " << bytes_read << std::endl;
 
     if (bytes_read > 0) {
-        // _requestBuffer.insert(_requestBuffer.end(), buffer, buffer + bytes_read); // Not strictly needed if parser handles buffering
         _parser.appendData(buffer, bytes_read); // Pass data to parser
-
-        if (_parser.isComplete()) {
-            _request = _parser.getRequest();
-            std::cout << "DEBUG: Request parsing complete for FD " << getSocketFD() << "." << std::endl;
-            _processRequest();
-        } else if (_parser.hasError()) {
-            std::cerr << "ERROR: Request parsing error for FD: " << getSocketFD() << ". Closing connection." << std::endl;
-            HttpRequestHandler handler;
-            _response = handler._generateErrorResponse(400, this->getServerBlock(), NULL); // Bad Request
-            setState(WRITING);
-        } else {
-            std::cout << "DEBUG: Request parsing still in progress for FD " << getSocketFD() << "." << std::endl;
-        }
-    } else if (bytes_read == 0) {
-        std::cout << "Client closed connection gracefully on FD: " << getSocketFD() << std::endl;
-        setState(CLOSING);
-    } else { // bytes_read < 0, treat as error (cannot use errno directly, but can assume transient for non-blocking or fatal)
+        std::cout << "DEBUG: Appended " << bytes_read << " bytes to parser for FD " << getSocketFD() << std::endl;
+    } else if (bytes_read < 0) { // bytes_read < 0, treat as error (cannot use errno directly, but can assume transient for non-blocking or fatal)
         std::cerr << "Error reading from socket FD: " << getSocketFD() << ". Marking for CLOSING." << std::endl;
         setState(CLOSING);
+        std::cout << "DEBUG: Exiting handleRead() for FD " << getSocketFD() << std::endl;
+        return; // Exit early on error
     }
+
+    // Always attempt to parse after receiving data or if connection closed
+    _parser.parse(); // Call parse() here
+
+    if (_parser.isComplete()) {
+        _request = _parser.getRequest();
+        std::cout << "DEBUG: Request parsing complete for FD " << getSocketFD() << ". URI: " << _request.uri << std::endl;
+        _processRequest();
+    } else if (_parser.hasError()) {
+        std::cerr << "ERROR: Request parsing error for FD: " << getSocketFD() << ". Closing connection." << std::endl;
+        HttpRequestHandler handler;
+        _response = handler._generateErrorResponse(400, this->getServerBlock(), NULL); // Bad Request
+        setState(WRITING);
+    } else {
+        std::cout << "DEBUG: Request parsing still in progress for FD " << getSocketFD() << ". Waiting for more data." << std::endl;
+        // If bytes_read was 0 and parser is still incomplete, then it's a malformed request.
+        if (bytes_read == 0) {
+            std::cerr << "ERROR: Client closed connection, but request is incomplete. Malformed request. Closing connection." << std::endl;
+            HttpRequestHandler handler;
+            _response = handler._generateErrorResponse(400, this->getServerBlock(), NULL); // Bad Request
+            setState(WRITING); // Send a 400 response before closing
+        }
+    }
+    std::cout << "DEBUG: Exiting handleRead() for FD " << getSocketFD() << std::endl;
 }
 
 // Handles writing data to the client socket.
 void Connection::handleWrite() {
+    std::cout << "DEBUG: Entering handleWrite() for FD " << getSocketFD() << std::endl;
     if (_bytesSentFromRawResponse == 0) {
         _rawResponseToSend = _response.toString();
         std::cout << "DEBUG: handleWrite: Generated raw response of size " << _rawResponseToSend.length() << " for FD: " << getSocketFD() << std::endl;
+        // std::cout << "--- RESPONSE START ---\n" << _rawResponseToSend << "\n--- RESPONSE END ---" << std::endl;
     }
 
     size_t remaining_to_send = _rawResponseToSend.length() - _bytesSentFromRawResponse;
@@ -104,10 +118,12 @@ void Connection::handleWrite() {
             // _server->updateFdEvents(getSocketFD(), POLLOUT); // State change already handles this
         }
     }
+    std::cout << "DEBUG: Exiting handleWrite() for FD " << getSocketFD() << std::endl;
 }
 
 // Processes the parsed HTTP request.
 void Connection::_processRequest() {
+    std::cout << "DEBUG: Entering _processRequest() for FD " << getSocketFD() << std::endl;
     // Fix: Declared as const ServerConfig* to match getServerBlock() return type
     const ServerConfig* currentServerConfig = this->getServerBlock();
     if (!currentServerConfig) {
@@ -131,17 +147,25 @@ void Connection::_processRequest() {
 
     const LocationConfig* location = matchedConfig.location_config;
 
+    if (location) {
+        std::cout << "DEBUG: Matched location: " << location->path << std::endl;
+    } else {
+        std::cout << "DEBUG: No specific location matched. Using server defaults." << std::endl;
+    }
+
     if (location && !location->cgiExecutables.empty()) {
         size_t dot_pos = _request.path.rfind('.');
         if (dot_pos != std::string::npos) {
             std::string file_extension = _request.path.substr(dot_pos);
             // Check if the exact extension is configured for CGI in this location
             if (location->cgiExecutables.count(file_extension)) {
+                std::cout << "DEBUG: Request is for a CGI script: " << _request.path << std::endl;
                 _isCgiRequest = true;
                 setState(HANDLING_CGI); // Transition to a CGI specific state
                 executeCGI();
             } else {
                 // Not a matching CGI extension, handle as non-CGI
+                std::cout << "DEBUG: Request is not a CGI script (extension mismatch)." << std::endl;
                 _isCgiRequest = false;
                 HttpRequestHandler handler;
                 _response = handler.handleRequest(_request, matchedConfig);
@@ -151,6 +175,7 @@ void Connection::_processRequest() {
             }
         } else {
             // No file extension, handle as non-CGI
+            std::cout << "DEBUG: Request is not a CGI script (no extension)." << std::endl;
             _isCgiRequest = false;
             HttpRequestHandler handler;
             _response = handler.handleRequest(_request, matchedConfig);
@@ -160,6 +185,7 @@ void Connection::_processRequest() {
         }
     } else {
         // No CGI configured for this location or no location matched, handle as non-CGI
+        std::cout << "DEBUG: Request is not a CGI script (no CGI config for location)." << std::endl;
         _isCgiRequest = false;
         HttpRequestHandler handler;
         _response = handler.handleRequest(_request, matchedConfig);
@@ -175,6 +201,7 @@ void Connection::_processRequest() {
     // _parser.reset();
     // _bytesSentFromRawResponse = 0;
     // _rawResponseToSend.clear();
+    std::cout << "DEBUG: Exiting _processRequest() for FD " << getSocketFD() << std::endl;
 }
 
 // Initiates the CGI process for the current request.
