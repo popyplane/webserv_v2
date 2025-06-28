@@ -20,6 +20,8 @@ void handle_signal(int signal) {
 
 // Main function: Parses configuration and starts the webserv server.
 int main(int argc, char **argv) {
+    // Enregistrement du gestionnaire de signal
+    std::signal(SIGINT, handle_signal);
     // Validate command line arguments.
     if (argc > 2) {
         std::cerr << "Usage: ./webserv [configuration_file]" << std::endl;
