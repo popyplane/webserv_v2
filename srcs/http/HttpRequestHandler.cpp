@@ -189,8 +189,6 @@ HttpResponse HttpRequestHandler::_generateErrorResponse(int statusCode,
 std::string HttpRequestHandler::_resolvePath(const std::string& uriPath,
                                              const ServerConfig* serverConfig,
                                              const LocationConfig* locationConfig) const {
-    // Determine the effective root directory.
-    // This will be './www' if using your default.conf
     std::string effectiveRoot = _getEffectiveRoot(serverConfig, locationConfig);
     std::cout << "DEBUG: _resolvePath: URI: '" << uriPath << "', Effective Root: '" << effectiveRoot << "'" << std::endl;
 
@@ -199,35 +197,43 @@ std::string HttpRequestHandler::_resolvePath(const std::string& uriPath,
         return "";
     }
 
-    // Ensure the effectiveRoot does not have a trailing slash, UNLESS it's just "/"
-    if (effectiveRoot.length() > 1 && StringUtils::endsWith(effectiveRoot, "/")) {
-        effectiveRoot = effectiveRoot.substr(0, effectiveRoot.length() - 1);
-        std::cout << "DEBUG: _resolvePath: Trimmed effectiveRoot to: '" << effectiveRoot << "'" << std::endl;
+    // Ensure effectiveRoot ends with a slash for consistent path building
+    if (effectiveRoot.length() > 0 && effectiveRoot[effectiveRoot.length() - 1] != '/') {
+        effectiveRoot += "/";
     }
 
-    // Construct the final file system path.
-    // The uriPath starts with '/' (e.g., "/html/about.html", "/images/logo.jpg").
-    // effectiveRoot is like "./www".
-    // We need to combine them carefully to avoid "//" or missing slash.
+    std::string normalizedUriPath = uriPath;
+    // Remove leading slash from uriPath if present, as effectiveRoot already has one
+    if (normalizedUriPath.length() > 0 && normalizedUriPath[0] == '/') {
+        normalizedUriPath = normalizedUriPath.substr(1);
+    }
+
+    std::vector<std::string> segments;
+    std::istringstream iss(normalizedUriPath);
+    std::string segment;
+
+    while (std::getline(iss, segment, '/')) {
+        if (segment == "" || segment == ".") {
+            // Ignore empty segments (e.g., //) and current directory segments
+            continue;
+        } else if (segment == "..") {
+            // Go up one level, but not above the effective root
+            if (!segments.empty()) {
+                segments.pop_back();
+            }
+        } else {
+            segments.push_back(segment);
+        }
+    }
 
     std::string fullPath = effectiveRoot;
-
-    // If uriPath is "/" and effectiveRoot is not empty, ensure a single trailing slash.
-    if (uriPath == "/") {
-        if (!fullPath.empty() && fullPath[fullPath.length() - 1] != '/') {
+    for (size_t i = 0; i < segments.size(); ++i) {
+        fullPath += segments[i];
+        if (i < segments.size() - 1) {
             fullPath += "/";
         }
-    } else {
-        // Append uriPath to effectiveRoot, ensuring only one slash in between.
-        if (!fullPath.empty() && fullPath[fullPath.length() - 1] == '/' && uriPath[0] == '/') {
-            fullPath += uriPath.substr(1); // Remove leading slash from uriPath if root has trailing slash
-        } else if (!fullPath.empty() && fullPath[fullPath.length() - 1] != '/' && uriPath[0] != '/') {
-            fullPath += "/" + uriPath; // Add a slash if both are missing it
-        } else {
-            fullPath += uriPath; // One of them already has the slash, or both are empty
-        }
     }
-    
+
     std::cout << "DEBUG: _resolvePath: Final resolved path: '" << fullPath << "'" << std::endl;
     return fullPath;
 }
