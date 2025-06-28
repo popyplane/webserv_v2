@@ -244,8 +244,8 @@ HttpResponse HttpRequestHandler::_handleGet(const HttpRequest& request,
     std::cout << "DEBUG: _handleGet: Processing GET request for path: '" << request.path << "'" << std::endl;
 
     if (!serverConfig) {
-        std::cerr << "ERROR: _handleGet: serverConfig is NULL, returning 500." << std::endl;
-        return _generateErrorResponse(500, NULL, NULL);
+        std::cerr << "ERROR: _handleGet: serverConfig is NULL, throwing 500." << std::endl;
+        throw Http500Exception("Server configuration is null.");
     }
 
     std::string fullPath = _resolvePath(request.path, serverConfig, locationConfig);
@@ -253,15 +253,15 @@ HttpResponse HttpRequestHandler::_handleGet(const HttpRequest& request,
 
 
     if (fullPath.empty()) {
-        std::cerr << "ERROR: _handleGet: Resolved fullPath is empty after _resolvePath, returning 500." << std::endl;
-        return _generateErrorResponse(500, serverConfig, locationConfig);
+        std::cerr << "ERROR: _handleGet: Resolved fullPath is empty after _resolvePath, throwing 500." << std::endl;
+        throw Http500Exception("Resolved path is empty.");
     }
 
     if (_isDirectory(fullPath)) {
         std::cout << "DEBUG: _handleGet: Path is a directory: '" << fullPath << "'" << std::endl;
         if (!_canRead(fullPath)) {
-            std::cerr << "ERROR: _handleGet: Cannot read directory: '" << fullPath << "', returning 403. errno: " << strerror(errno) << std::endl;
-            return _generateErrorResponse(403, serverConfig, locationConfig);
+            std::cerr << "ERROR: _handleGet: Cannot read directory: '" << fullPath << "', throwing 403. errno: " << strerror(errno) << std::endl;
+            throw Http403Exception("Cannot read directory: " + fullPath);
         }
 
         std::vector<std::string> indexFiles;
@@ -296,8 +296,8 @@ HttpResponse HttpRequestHandler::_handleGet(const HttpRequest& request,
                     std::cout << "DEBUG: _handleGet: Successfully served index file: '" << indexPath << "'" << std::endl;
                     return response;
                 } else {
-                    std::cerr << "ERROR: _handleGet: Found index file '" << indexPath << "' but failed to open it, returning 500. errno: " << strerror(errno) << std::endl;
-                    return _generateErrorResponse(500, serverConfig, locationConfig);
+                    std::cerr << "ERROR: _handleGet: Found index file '" << indexPath << "' but failed to open it, throwing 500. errno: " << strerror(errno) << std::endl;
+                    throw Http500Exception("Failed to open index file: " + indexPath);
                 }
             } else {
                 std::cout << "DEBUG: _handleGet: Index file '" << indexPath << "' not a regular file or not readable." << std::endl;
@@ -324,14 +324,14 @@ HttpResponse HttpRequestHandler::_handleGet(const HttpRequest& request,
             response.setBody(_generateAutoindexPage(fullPath, request.path));
             return response;
         } else {
-            std::cerr << "ERROR: _handleGet: Directory '" << fullPath << "' has no index file and autoindex is off, returning 403." << std::endl;
-            return _generateErrorResponse(403, serverConfig, locationConfig);
+            std::cerr << "ERROR: _handleGet: Directory '" << fullPath << "' has no index file and autoindex is off, throwing 403." << std::endl;
+            throw Http403Exception("Directory has no index file and autoindex is off: " + fullPath);
         }
     } else if (_isRegularFile(fullPath)) {
         std::cout << "DEBUG: _handleGet: Path is a regular file: '" << fullPath << "'" << std::endl;
         if (!_canRead(fullPath)) {
-            std::cerr << "ERROR: _handleGet: Cannot read regular file: '" << fullPath << "', returning 403. errno: " << strerror(errno) << std::endl;
-            return _generateErrorResponse(403, serverConfig, locationConfig);
+            std::cerr << "ERROR: _handleGet: Cannot read regular file: '" << fullPath << "', throwing 403. errno: " << strerror(errno) << std::endl;
+            throw Http403Exception("Cannot read regular file: " + fullPath);
         }
         
         std::ifstream file(fullPath.c_str(), std::ios::in | std::ios::binary);
@@ -346,12 +346,12 @@ HttpResponse HttpRequestHandler::_handleGet(const HttpRequest& request,
             std::cout << "DEBUG: _handleGet: Successfully served regular file: '" << fullPath << "'" << std::endl;
             return response;
         } else {
-            std::cerr << "ERROR: _handleGet: Regular file '" << fullPath << "' exists but failed to open it, returning 500. errno: " << strerror(errno) << std::endl;
-            return _generateErrorResponse(500, serverConfig, locationConfig);
+            std::cerr << "ERROR: _handleGet: Regular file '" << fullPath << "' exists but failed to open it, throwing 500. errno: " << strerror(errno) << std::endl;
+            throw Http500Exception("Failed to open regular file: " + fullPath);
         }
     } else {
-        std::cerr << "ERROR: _handleGet: Path '" << fullPath << "' is neither directory nor regular file, returning 404." << std::endl;
-        return _generateErrorResponse(404, serverConfig, locationConfig);
+        std::cerr << "ERROR: _handleGet: Path '" << fullPath << "' is neither directory nor regular file, throwing 404." << std::endl;
+        throw Http404Exception("Path is neither directory nor regular file: " + fullPath);
     }
 }
 
@@ -362,25 +362,25 @@ HttpResponse HttpRequestHandler::_handlePost(const HttpRequest& request,
     long maxBodySize = _getEffectiveClientMaxBodySize(serverConfig, locationConfig);
 
     if (uploadStore.empty()) {
-        std::cerr << "ERROR: _handlePost: upload_store not configured, returning 500." << std::endl;
-        return _generateErrorResponse(500, serverConfig, locationConfig);
+        std::cerr << "ERROR: _handlePost: upload_store not configured, throwing 500." << std::endl;
+        throw Http500Exception("Upload store not configured.");
     }
     
     if (!_fileExists(uploadStore)) {
         std::cout << "DEBUG: _handlePost: Upload store directory '" << uploadStore << "' does not exist, attempting to create." << std::endl;
         if (mkdir(uploadStore.c_str(), S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH) != 0) {
-            std::cerr << "ERROR: _handlePost: Failed to create upload store directory '" << uploadStore << "', errno: " << strerror(errno) << ". Returning 500." << std::endl;
-            return _generateErrorResponse(500, serverConfig, locationConfig);
+            std::cerr << "ERROR: _handlePost: Failed to create upload store directory '" << uploadStore << "', errno: " << strerror(errno) << ". Throwing 500." << std::endl;
+            throw Http500Exception("Failed to create upload store directory: " + uploadStore);
         }
         std::cout << "DEBUG: _handlePost: Upload store directory '" << uploadStore << "' created successfully." << std::endl;
     } else if (!_isDirectory(uploadStore)) {
-        std::cerr << "ERROR: _handlePost: Upload store path '" << uploadStore << "' exists but is not a directory, returning 500." << std::endl;
-        return _generateErrorResponse(500, serverConfig, locationConfig);
+        std::cerr << "ERROR: _handlePost: Upload store path '" << uploadStore << "' exists but is not a directory, throwing 500." << std::endl;
+        throw Http500Exception("Upload store path exists but is not a directory: " + uploadStore);
     }
 
     if (!_canWrite(uploadStore)) {
-        std::cerr << "ERROR: _handlePost: No write permissions for upload store directory '" << uploadStore << "', returning 403." << std::endl;
-        return _generateErrorResponse(403, serverConfig, locationConfig);
+        std::cerr << "ERROR: _handlePost: No write permissions for upload store directory '" << uploadStore << "', throwing 403." << std::endl;
+        throw Http403Exception("No write permissions for upload store directory: " + uploadStore);
     }
 
     std::string contentLengthStr = request.getHeader("content-length");
@@ -390,19 +390,19 @@ HttpResponse HttpRequestHandler::_handlePost(const HttpRequest& request,
             contentLength = StringUtils::stringToLong(contentLengthStr);
             std::cout << "DEBUG: _handlePost: Content-Length: " << contentLength << std::endl;
         } catch (const std::exception& e) {
-            std::cerr << "ERROR: _handlePost: Invalid Content-Length header: '" << contentLengthStr << "', returning 400." << std::endl;
-            return _generateErrorResponse(400, serverConfig, locationConfig);
+            std::cerr << "ERROR: _handlePost: Invalid Content-Length header: '" << contentLengthStr << "', throwing 400." << std::endl;
+            throw Http400Exception("Invalid Content-Length header: " + contentLengthStr);
         }
     } else {
         if (!request.body.empty()) {
-            std::cerr << "ERROR: _handlePost: Request body present but no Content-Length header, returning 411." << std::endl;
-            return _generateErrorResponse(411, serverConfig, locationConfig);
+            std::cerr << "ERROR: _handlePost: Request body present but no Content-Length header, throwing 411." << std::endl;
+            throw Http411Exception("Request body present but no Content-Length header.");
         }
     }
     
     if (contentLength > maxBodySize) {
-        std::cerr << "ERROR: _handlePost: Request body size (" << contentLength << ") exceeds maxBodySize (" << maxBodySize << "), returning 413." << std::endl;
-        return _generateErrorResponse(413, serverConfig, locationConfig);
+        std::cerr << "ERROR: _handlePost: Request body size (" << contentLength << ") exceeds maxBodySize (" << maxBodySize << "), throwing 413." << std::endl;
+        throw Http413Exception("Request body size exceeds maxBodySize.");
     }
 
     std::string originalFilename = "uploaded_file";
@@ -457,8 +457,8 @@ HttpResponse HttpRequestHandler::_handlePost(const HttpRequest& request,
 
     std::ofstream outputFile(fullUploadPath.c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
     if (!outputFile.is_open()) {
-        std::cerr << "ERROR: _handlePost: Failed to open output file for writing: '" << fullUploadPath << "', errno: " << strerror(errno) << ". Returning 500." << std::endl;
-        return _generateErrorResponse(500, serverConfig, locationConfig);
+        std::cerr << "ERROR: _handlePost: Failed to open output file for writing: '" << fullUploadPath << "', errno: " << strerror(errno) << ". Throwing 500." << std::endl;
+        throw Http500Exception("Failed to open output file for writing: " + fullUploadPath);
     }
 
     if (!request.body.empty()) {
@@ -470,8 +470,8 @@ HttpResponse HttpRequestHandler::_handlePost(const HttpRequest& request,
     outputFile.close();
 
     if (outputFile.fail()) {
-        std::cerr << "ERROR: _handlePost: File stream failed after writing (e.g., disk full), returning 500. errno: " << strerror(errno) << std::endl;
-        return _generateErrorResponse(500, serverConfig, locationConfig);
+        std::cerr << "ERROR: _handlePost: File stream failed after writing (e.g., disk full), throwing 500. errno: " << strerror(errno) << std::endl;
+        throw Http500Exception("File stream failed after writing.");
     }
     std::cout << "DEBUG: _handlePost: File writing completed successfully." << std::endl;
 
@@ -523,18 +523,18 @@ HttpResponse HttpRequestHandler::_handleDelete(const HttpRequest& request,
     }
 
     if (fullPath.empty()) {
-        std::cerr << "ERROR: _handleDelete: Resolved fullPath is empty, returning 500." << std::endl;
-        return _generateErrorResponse(500, serverConfig, locationConfig);
+        std::cerr << "ERROR: _handleDelete: Resolved fullPath is empty, throwing 500." << std::endl;
+        throw Http500Exception("Resolved path is empty.");
     }
 
     if (!_fileExists(fullPath)) {
-        std::cerr << "ERROR: _handleDelete: File to delete '" << fullPath << "' does not exist, returning 404." << std::endl;
-        return _generateErrorResponse(404, serverConfig, locationConfig);
+        std::cerr << "ERROR: _handleDelete: File to delete '" << fullPath << "' does not exist, throwing 404." << std::endl;
+        throw Http404Exception("File to delete does not exist: " + fullPath);
     }
 
     if (!_isRegularFile(fullPath)) {
-        std::cerr << "ERROR: _handleDelete: Path '" << fullPath << "' is not a regular file, cannot delete, returning 403." << std::endl;
-        return _generateErrorResponse(403, serverConfig, locationConfig);
+        std::cerr << "ERROR: _handleDelete: Path '" << fullPath << "' is not a regular file, cannot delete, throwing 403." << std::endl;
+        throw Http403Exception("Path is not a regular file, cannot delete: " + fullPath);
     }
 
     size_t lastSlashPos = fullPath.rfind('/');
@@ -548,28 +548,28 @@ HttpResponse HttpRequestHandler::_handleDelete(const HttpRequest& request,
 
 
     if (!_canWrite(parentDir)) {
-        std::cerr << "ERROR: _handleDelete: No write permissions on parent directory '" << parentDir << "', returning 403." << std::endl;
-        return _generateErrorResponse(403, serverConfig, locationConfig);
+        std::cerr << "ERROR: _handleDelete: No write permissions on parent directory '" << parentDir << "', throwing 403." << std::endl;
+        throw Http403Exception("No write permissions on parent directory: " + parentDir);
     }
     
     // It's also good to check if the file itself has write permissions,
     // though parent directory write usually implies ability to unlink.
     if (!_canWrite(fullPath)) { // Check if the file itself is write-protected
-        std::cerr << "ERROR: _handleDelete: No write permissions on file '" << fullPath << "', returning 403. errno: " << strerror(errno) << std::endl;
-        return _generateErrorResponse(403, serverConfig, locationConfig);
+        std::cerr << "ERROR: _handleDelete: No write permissions on file '" << fullPath << "', throwing 403." << std::endl;
+        throw Http403Exception("No write permissions on file: " + fullPath);
     }
 
     if (std::remove(fullPath.c_str()) != 0) {
         std::cerr << "ERROR: _handleDelete: Failed to delete file '" << fullPath << "', errno: " << strerror(errno) << ". ";
         if (errno == EACCES || errno == EPERM) {
-            std::cerr << "Returning 403." << std::endl;
-            return _generateErrorResponse(403, serverConfig, locationConfig);
+            std::cerr << "Throwing 403." << std::endl;
+            throw Http403Exception("Failed to delete file (permission denied): " + fullPath);
         } else if (errno == ENOENT) {
-            std::cerr << "Returning 404 (file disappeared)." << std::endl;
-            return _generateErrorResponse(404, serverConfig, locationConfig);
+            std::cerr << "Throwing 404 (file disappeared)." << std::endl;
+            throw Http404Exception("Failed to delete file (not found): " + fullPath);
         }
-        std::cerr << "Returning 500." << std::endl;
-        return _generateErrorResponse(500, serverConfig, locationConfig);
+        std::cerr << "Throwing 500." << std::endl;
+        throw Http500Exception("Failed to delete file: " + fullPath);
     }
 
     std::cout << "DEBUG: _handleDelete: Successfully deleted file: '" << fullPath << "'" << std::endl;
@@ -652,8 +652,8 @@ HttpResponse HttpRequestHandler::handleRequest(const HttpRequest& request, const
     const LocationConfig* locationConfig = matchedConfig.location_config;
 
     if (!serverConfig) {
-        std::cerr << "ERROR: handleRequest: No serverConfig provided, returning 500." << std::endl;
-        return _generateErrorResponse(500, NULL, NULL);
+        std::cerr << "ERROR: handleRequest: No serverConfig provided, throwing 500." << std::endl;
+        throw Http500Exception("No server configuration provided.");
     }
 
     // Handle return directives (redirects)
@@ -693,29 +693,31 @@ HttpResponse HttpRequestHandler::handleRequest(const HttpRequest& request, const
     }
 
     if (!methodAllowed) {
-        std::cerr << "ERROR: handleRequest: Method '" << request.method << "' not allowed for path '" << request.path << "', returning 405." << std::endl;
-        HttpResponse response = _generateErrorResponse(405, serverConfig, locationConfig);
-        std::string allowHeaderValue;
-        for (size_t i = 0; i < allowedMethods.size(); ++i) {
-            if (i > 0) allowHeaderValue += ", ";
-            if (allowedMethods[i] == HTTP_GET) allowHeaderValue += "GET";
-            else if (allowedMethods[i] == HTTP_POST) allowHeaderValue += "POST";
-            else if (allowedMethods[i] == HTTP_DELETE) allowHeaderValue += "DELETE";
-        }
-        response.addHeader("Allow", allowHeaderValue);
-        return response;
+        std::cerr << "ERROR: handleRequest: Method '" << request.method << "' not allowed for path '" << request.path << "', throwing 405." << std::endl;
+        throw Http405Exception("Method '" + request.method + "' not allowed for path '" + request.path + "'");
     }
 
     // Dispatch based on method
-    if (request.method == "GET") {
-        return _handleGet(request, serverConfig, locationConfig);
-    } else if (request.method == "POST") {
-        return _handlePost(request, serverConfig, locationConfig);
-    } else if (request.method == "DELETE") {
-        return _handleDelete(request, serverConfig, locationConfig);
-    } else {
-        std::cerr << "ERROR: handleRequest: Method '" << request.method << "' not implemented, returning 501." << std::endl;
-        return _generateErrorResponse(501, serverConfig, locationConfig);
+    try {
+        if (request.method == "GET") {
+            return _handleGet(request, serverConfig, locationConfig);
+        } else if (request.method == "POST") {
+            return _handlePost(request, serverConfig, locationConfig);
+        } else if (request.method == "DELETE") {
+            return _handleDelete(request, serverConfig, locationConfig);
+        } else {
+            std::cerr << "ERROR: handleRequest: Method '" << request.method << "' not implemented, throwing 501." << std::endl;
+            throw Http501Exception("Method '" + request.method + "' not implemented.");
+        }
+    } catch (const HttpException& e) {
+        std::cerr << "Caught HttpException: " << e.what() << " (Status: " << e.getStatusCode() << ")" << std::endl;
+        return _generateErrorResponse(e.getStatusCode(), serverConfig, locationConfig);
+    } catch (const std::exception& e) {
+        std::cerr << "Caught unexpected standard exception: " << e.what() << std::endl;
+        return _generateErrorResponse(500, serverConfig, locationConfig);
+    } catch (...) {
+        std::cerr << "Caught unknown exception." << std::endl;
+        return _generateErrorResponse(500, serverConfig, locationConfig);
     }
 }
 

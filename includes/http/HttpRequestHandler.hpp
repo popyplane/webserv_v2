@@ -5,6 +5,9 @@
 #include "HttpResponse.hpp"
 #include "RequestDispatcher.hpp"
 #include "../utils/StringUtils.hpp"
+#include "../config/ServerStructures.hpp"
+#include "CGIHandler.hpp"
+#include "HttpExceptions.hpp"
 
 #include <string>
 #include <vector>

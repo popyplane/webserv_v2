@@ -23,6 +23,7 @@
 #include "HttpRequest.hpp"
 #include "HttpResponse.hpp"
 #include "../config/ServerStructures.hpp"
+#include "HttpExceptions.hpp"
 
 class Server;
 

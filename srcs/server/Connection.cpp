@@ -52,7 +52,25 @@ void Connection::handleRead() {
     if (bytes_read > 0) {
         _parser.appendData(buffer, bytes_read); // Pass data to parser
         std::cout << "DEBUG: Appended " << bytes_read << " bytes to parser for FD " << getSocketFD() << std::endl;
-    } else if (bytes_read < 0) { // bytes_read < 0, treat as error (cannot use errno directly, but can assume transient for non-blocking or fatal)
+    } else if (bytes_read == 0) { // Client closed connection
+        std::cout << "DEBUG: Client on FD " << getSocketFD() << " closed connection." << std::endl;
+        // If the parser is not complete, it means the client closed before sending a full request.
+        // This is a malformed request.
+        if (!_parser.isComplete()) {
+            std::cerr << "WARNING: Client closed connection on FD " << getSocketFD() << ", but request was incomplete. Sending 400 Bad Request." << std::endl;
+            HttpRequestHandler handler;
+            _response = handler._generateErrorResponse(400, this->getServerBlock(), NULL); // Bad Request
+            setState(WRITING); // Send the 400 response
+        } else {
+            // If parser is complete, it means a full request was received, and client is just closing.
+            // The response for the complete request should already be handled or be in progress.
+            // We just need to mark the connection for closing.
+            std::cout << "DEBUG: Client on FD " << getSocketFD() << " closed connection after complete request." << std::endl;
+            setState(CLOSING); // Mark for closing
+        }
+        std::cout << "DEBUG: Exiting handleRead() for FD " << getSocketFD() << std::endl;
+        return; // Exit early as connection is closing or response is being sent
+    } else { // bytes_read < 0 (error)
         std::cerr << "Error reading from socket FD: " << getSocketFD() << ". Marking for CLOSING." << std::endl;
         setState(CLOSING);
         std::cout << "DEBUG: Exiting handleRead() for FD " << getSocketFD() << std::endl;
@@ -73,13 +91,6 @@ void Connection::handleRead() {
         setState(WRITING);
     } else {
         std::cout << "DEBUG: Request parsing still in progress for FD " << getSocketFD() << ". Waiting for more data." << std::endl;
-        // If bytes_read was 0 and parser is still incomplete, then it's a malformed request.
-        if (bytes_read == 0) {
-            std::cerr << "ERROR: Client closed connection, but request is incomplete. Malformed request. Closing connection." << std::endl;
-            HttpRequestHandler handler;
-            _response = handler._generateErrorResponse(400, this->getServerBlock(), NULL); // Bad Request
-            setState(WRITING); // Send a 400 response before closing
-        }
     }
     std::cout << "DEBUG: Exiting handleRead() for FD " << getSocketFD() << std::endl;
 }
@@ -105,9 +116,14 @@ void Connection::handleWrite() {
 
     std::cout << "DEBUG: handleWrite() on FD " << getSocketFD() << ", bytes_sent: " << bytes_sent << ", total response size: " << _rawResponseToSend.length() << std::endl;
 
-    if (bytes_sent < 0) { // treat as error (cannot use errno directly)
+    if (bytes_sent < 0) { // treat as error
         std::cerr << "Error writing to socket FD: " << getSocketFD() << ". Closing connection." << std::endl;
         setState(CLOSING);
+    } else if (bytes_sent == 0) {
+        // No bytes were sent. This is not an error for non-blocking sockets;
+        // it means the send buffer is full. Try again later.
+        std::cout << "DEBUG: handleWrite: No bytes sent on FD: " << getSocketFD() << ". Send buffer full. Will retry." << std::endl;
+        // Do nothing, just return. The poll loop will re-poll for POLLOUT.
     } else {
         _bytesSentFromRawResponse += bytes_sent;
         if (static_cast<size_t>(bytes_sent) == remaining_to_send || _bytesSentFromRawResponse >= _rawResponseToSend.length()) {

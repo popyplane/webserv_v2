@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   CGIHandler.cpp                                     :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: bvieilhe <bvieilhe@student.42.fr>          +#+  +:+       +#+        */
+/*   By: baptistevieilhescaze <baptistevieilhesc    +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/06/25 17:47:11 by baptistevie       #+#    #+#             */
-/*   Updated: 2025/06/28 11:27:19 by bvieilhe         ###   ########.fr       */
+/*   Updated: 2025/06/28 23:05:27 by baptistevie      ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -525,9 +525,7 @@ void CGIHandler::handleRead() {
     std::cout << "DEBUG: CGIHandler::handleRead: Attempting to read from FD: " << _fd_stdout[0] << ". Buffer size before read: " << _cgi_response_buffer.size() << std::endl;
     ssize_t bytes_read = read(_fd_stdout[0], buffer, sizeof(buffer));
 
-    if (bytes_read < 0) { // Error reading
-        // perror("read from CGI stdout"); // TEMPORARY DEBUGGING: REMOVED
-    }
+    
 
     if (bytes_read > 0) {
         _cgi_response_buffer.insert(_cgi_response_buffer.end(), buffer, buffer + bytes_read);
@@ -536,12 +534,8 @@ void CGIHandler::handleRead() {
         std::cout << "DEBUG: CGIHandler::handleRead: EOF received on CGI stdout pipe (FD: " << _fd_stdout[0] << ")." << std::endl;
         _cgi_stdout_eof_received = true;
     } else { // bytes_read == -1
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            std::cout << "DEBUG: CGIHandler::handleRead: No data available on CGI stdout pipe (FD: " << _fd_stdout[0] << "). Try again later." << std::endl;
-        } else {
-            std::cerr << "ERROR: CGIHandler::handleRead: Error reading from CGI stdout pipe (FD: " << _fd_stdout[0] << "): " << strerror(errno) << ". Setting CGI_PROCESS_ERROR state." << std::endl;
-            _state = CGIState::CGI_PROCESS_ERROR;
-        }
+        std::cerr << "ERROR: CGIHandler::handleRead: Error reading from CGI stdout pipe (FD: " << _fd_stdout[0] << "). Throwing 500." << std::endl;
+        throw Http500Exception("Error reading from CGI stdout pipe.");
     }
 }
 
@@ -592,9 +586,18 @@ void CGIHandler::handleWrite() {
             }
             _state = CGIState::READING_OUTPUT;
         }
-    } else { // bytes_written == -1, treat as error
-        std::cerr << "ERROR: CGIHandler::handleWrite: Error writing to CGI stdin pipe (FD: " << _fd_stdin[1] << "). Setting CGI_PROCESS_ERROR state." << std::endl;
-        _state = CGIState::CGI_PROCESS_ERROR;
+    } else { // bytes_written <= 0
+        if (bytes_written == 0) {
+            // This case means write() returned 0 bytes.
+            // For non-blocking, this implies the pipe is full or not ready.
+            // It's not an error that should terminate the CGI process.
+            std::cout << "DEBUG: CGIHandler::handleWrite: No bytes written to CGI stdin pipe (FD: " << _fd_stdin[1] << "). Try again later." << std::endl;
+            // Do nothing, just return. The poll loop will re-poll for POLLOUT.
+        } else { // bytes_written == -1
+            // Fatal error
+            std::cerr << "ERROR: CGIHandler::handleWrite: Fatal error writing to CGI stdin pipe (FD: " << _fd_stdin[1] << "). Throwing 500." << std::endl;
+            throw Http500Exception("Fatal error writing to CGI stdin pipe.");
+        }
     }
 }
 
@@ -626,9 +629,6 @@ void CGIHandler::pollCGIProcess() {
                     std::cout << "DEBUG: Final read successful, EOF received." << std::endl;
                     break;
                 }
-                // Small sleep to avoid busy-waiting if read() returns 0 but not EOF immediately
-                // This is a fallback for very unusual race conditions, usually not needed.
-                // usleep(1000); // 1ms sleep
             }
 
             if (!_cgi_headers_parsed) {
