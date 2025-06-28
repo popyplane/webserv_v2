@@ -40,4 +40,7 @@
 # include "server/Connection.hpp" // Defines the Connection class for managing client connections.
 # include "utils/StringUtils.hpp" // Need this explicitly for StringUtils functions
 
+# include <csignal>
+extern volatile sig_atomic_t stopSig;
+
 #endif

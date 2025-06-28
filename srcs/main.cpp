@@ -7,6 +7,16 @@
 #include <fstream>
 #include <sstream>
 #include <vector>
+#include <csignal>
+
+volatile sig_atomic_t stopSig = 0;
+
+void handle_signal(int signal) {
+    if (signal == SIGINT) {
+        std::cout << "Signal SIGINT reçu, arrêt du serveur..." << std::endl;
+        stopSig = 1; // Mettre à jour la variable pour indiquer l'arrêt
+    }
+}
 
 // Main function: Parses configuration and starts the webserv server.
 int main(int argc, char **argv) {

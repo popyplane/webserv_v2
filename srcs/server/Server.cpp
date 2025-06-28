@@ -348,7 +348,7 @@ void Server::run() {
     _running = true;
     std::cout << "Server running and listening..." << std::endl;
 
-    while (_running) {
+    while (_running && !stopSig) {
         // std::cout << "DEBUG: --- Poll Cycle Start ---" << std::endl;
         // std::cout << "DEBUG: _pfds size: " << _pfds.size() << ", _connections size: " << _connections.size() << ", _cgiFdsToConnection size: " << _cgiFdsToConnection.size() << std::endl;
 
