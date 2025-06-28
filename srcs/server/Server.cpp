@@ -277,11 +277,7 @@ void Server::_handleCgiEvent(int cgi_fd, short revents) {
     // For the write pipe (CGI stdin), this means the CGI read all its input.
     if (revents & POLLHUP) {
         std::cout << "DEBUG: CGI pipe FD " << cgi_fd << ": POLLHUP detected. " << std::endl;
-        // Ensure any remaining data is read if it's the stdout pipe and POLLIN was also set
-        if (revents & POLLIN) {
-            std::cout << "DEBUG:     POLLHUP with POLLIN: attempting final read." << std::endl;
-            cgiHandler->handleRead();
-        }
+        // No need to call handleRead() again here, pollCGIProcess() will handle final drain.
     }
 
     // Call pollCGIProcess to manage child process status (waitpid) and state transitions
@@ -377,6 +373,18 @@ void Server::run() {
         if (num_events == 0) {
             // Poll timeout. No events.
         } else {
+            // Check for CGI timeouts
+            for (std::map<int, Connection*>::iterator it = _connections.begin(); it != _connections.end(); ++it) {
+                Connection* conn = it->second;
+                if (conn->hasActiveCGI()) {
+                    CGIHandler* cgiHandler = conn->getCgiHandler();
+                    if (cgiHandler->checkTimeout()) {
+                        std::cerr << "WARNING: CGI timeout detected for client FD " << conn->getSocketFD() << "." << std::endl;
+                        cgiHandler->setTimeout();
+                        conn->finalizeCGI(); // Finalize the connection's CGI handling
+                    }
+                }
+            }
             // Iterate backwards to safely remove elements during iteration
             for (long i = _pfds.size() - 1; i >= 0; --i) {
                 int current_fd = _pfds[i].fd;

@@ -27,6 +27,7 @@
 # define MAXEVENTS 1000 // Maximum number of events to handle in poll().
 # define BUFF_SIZE 8192 // Size of the buffer for reading/writing data.
 # define POLL_TIMEOUT_MS 5000 // Poll timeout in milliseconds (5 seconds).
+# define CGI_TIMEOUT_SECONDS 5 // CGI timeout in seconds (5 seconds).
 
 // Project-Specific Class Includes (keep these)
 # include "config/ServerStructures.hpp" // Defines structures for server and location configurations.

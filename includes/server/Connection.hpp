@@ -59,7 +59,8 @@ public:
     bool isCGI() const;
 
     // Returns a pointer to the CGI handler.
-    CGIHandler* getCgiHandler() const;
+        CGIHandler* getCgiHandler() const;
+    bool hasActiveCGI() const;
 
 private:
     HttpRequest         _request;           // The parsed HTTP request.

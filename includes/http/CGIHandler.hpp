@@ -62,6 +62,8 @@ public:
     const HttpResponse& getHttpResponse() const;
     pid_t getCGIPid() const;
     void setTimeout();
+    void setStartTime();
+    bool checkTimeout() const;
 
     void cleanup(); // <--- MODIFIED: No longer takes a Server* parameter
 
@@ -81,6 +83,8 @@ private:
     CGIState::Type      _state;
     bool                _cgi_headers_parsed;
     int                 _cgi_exit_status;
+    time_t              _cgi_start_time;
+    bool                _cgi_stdout_eof_received;
 
     const std::vector<char>* _request_body_ptr;
     size_t             _request_body_sent_bytes;

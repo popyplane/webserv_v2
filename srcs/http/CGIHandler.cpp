@@ -32,6 +32,7 @@ CGIHandler::CGIHandler(const HttpRequest& request,
       _state(CGIState::NOT_STARTED),
       _cgi_headers_parsed(false),
       _cgi_exit_status(-1),
+      _cgi_start_time(0),
       _request_body_ptr(&request.body),
       _request_body_sent_bytes(0)
 {
@@ -82,6 +83,8 @@ CGIHandler::CGIHandler(const CGIHandler& other)
       _state(CGIState::NOT_STARTED),
       _cgi_headers_parsed(false),
       _cgi_exit_status(-1),
+      _cgi_start_time(0),
+      _cgi_stdout_eof_received(false),
       _request_body_ptr(other._request_body_ptr),
       _request_body_sent_bytes(0)
 {
@@ -113,6 +116,7 @@ CGIHandler& CGIHandler::operator=(const CGIHandler& other) {
         _state = CGIState::NOT_STARTED;
         _cgi_headers_parsed = false;
         _cgi_exit_status = -1;
+        _cgi_start_time = 0;
     }
     return *this;
 }
@@ -295,8 +299,11 @@ char** CGIHandler::_createCGIEnvironment() const {
     env_vars_vec.push_back("REMOTE_ADDR=127.0.0.1");
     env_vars_vec.push_back("REMOTE_PORT=8080");
 
+    std::cerr << "DEBUG: CGI child: env_vars_vec size: " << env_vars_vec.size() << std::endl;
     char** envp = new char*[env_vars_vec.size() + 1];
     for (size_t i = 0; i < env_vars_vec.size(); ++i) {
+        std::cerr << "DEBUG: CGI child: Env var [" << i << "] length: " << env_vars_vec[i].length() << ", content: [" << env_vars_vec[i] << "]" << std::endl;
+        envp[i] = new char[env_vars_vec[i].length() + 1];
         strcpy(envp[i], env_vars_vec[i].c_str());
     }
     envp[env_vars_vec.size()] = NULL;
@@ -313,6 +320,7 @@ char** CGIHandler::_createCGIArguments() const {
     strcpy(argv[1], _cgi_script_path.c_str());
 
     argv[2] = NULL;
+    std::cerr << "DEBUG: CGI child: _createCGIArguments() returning." << std::endl;
     return argv;
 }
 
@@ -372,6 +380,17 @@ bool CGIHandler::start() {
         return false;
     }
 
+    // Set FD_CLOEXEC on all pipe ends in the parent
+    if (fcntl(_fd_stdin[0], F_SETFD, FD_CLOEXEC) == -1 ||
+        fcntl(_fd_stdin[1], F_SETFD, FD_CLOEXEC) == -1 ||
+        fcntl(_fd_stdout[0], F_SETFD, FD_CLOEXEC) == -1 ||
+        fcntl(_fd_stdout[1], F_SETFD, FD_CLOEXEC) == -1) {
+        std::cerr << "ERROR: Failed to set FD_CLOEXEC on CGI pipes." << std::endl;
+        _closePipes();
+        _state = CGIState::FORK_FAILED;
+        return false;
+    }
+
     if (!_setNonBlocking(_fd_stdin[1]) || !_setNonBlocking(_fd_stdout[0])) {
         if (_fd_stdin[0] != -1) { close(_fd_stdin[0]); _fd_stdin[0] = -1; }
         if (_fd_stdin[1] != -1) { close(_fd_stdin[1]); _fd_stdin[1] = -1; }
@@ -392,20 +411,27 @@ bool CGIHandler::start() {
     }
 
     if (_cgi_pid == 0) { // Child process.
+        std::cerr << "DEBUG: CGI child: Entered child process." << std::endl;
+
         close(_fd_stdin[1]);
         close(_fd_stdout[0]);
+        std::cerr << "DEBUG: CGI child: Closed parent pipe ends." << std::endl;
 
+        std::cerr << "DEBUG: CGI child: About to dup2 STDIN." << std::endl;
         if (dup2(_fd_stdin[0], STDIN_FILENO) == -1) {
-            std::cerr << "ERROR: dup2 STDIN_FILENO failed in CGI child. Exiting." << std::endl;
+            std::cerr << "ERROR: dup2 STDIN_FILENO failed in CGI child. " << strerror(errno) << ". Exiting." << std::endl;
             _exit(EXIT_FAILURE);
         }
+        std::cerr << "DEBUG: CGI child: About to dup2 STDOUT." << std::endl;
         if (dup2(_fd_stdout[1], STDOUT_FILENO) == -1) {
-            std::cerr << "ERROR: dup2 STDOUT_FILENO failed in CGI child. Exiting." << std::endl;
+            std::cerr << "ERROR: dup2 STDOUT_FILENO failed in CGI child. " << strerror(errno) << ". Exiting." << std::endl;
             _exit(EXIT_FAILURE);
         }
+        std::cerr << "DEBUG: CGI child: Duplicated FDs." << std::endl;
 
         close(_fd_stdin[0]);
         close(_fd_stdout[1]);
+        std::cerr << "DEBUG: CGI child: Closed child pipe ends." << std::endl;
 
         std::string cgi_working_dir_relative;
         if (_locationConfig && !_locationConfig->root.empty()) {
@@ -417,25 +443,43 @@ bool CGIHandler::start() {
         }
 
         char abs_chdir_path[PATH_MAX];
+        std::cerr << "DEBUG: CGI child: About to realpath for chdir." << std::endl;
         if (realpath(cgi_working_dir_relative.c_str(), abs_chdir_path) == NULL) {
-            std::cerr << "ERROR: CGI child: Failed to get absolute path for chdir target '" << cgi_working_dir_relative << "'. Exiting." << std::endl;
+            std::cerr << "ERROR: CGI child: Failed to get absolute path for chdir target '" << cgi_working_dir_relative << "'. " << strerror(errno) << ". Exiting." << std::endl;
             _exit(EXIT_FAILURE);
         }
         std::string cgi_working_dir_absolute = abs_chdir_path;
 
         std::cerr << "DEBUG: CGI child chdir to: " << cgi_working_dir_absolute << std::endl;
         if (chdir(cgi_working_dir_absolute.c_str()) == -1) {
-            std::cerr << "ERROR: chdir failed in CGI child to " << cgi_working_dir_absolute << ". Exiting." << std::endl;
+            std::cerr << "ERROR: chdir failed in CGI child to " << cgi_working_dir_absolute << ". " << strerror(errno) << ". Exiting." << std::endl;
+            _exit(EXIT_FAILURE);
+        }
+        std::cerr << "DEBUG: CGI child: Changed directory." << std::endl;
+
+        // Check if executable exists and is executable
+        if (access(_cgi_executable_path.c_str(), X_OK) == -1) {
+            std::cerr << "ERROR: CGI child: Executable not found or not executable: " << _cgi_executable_path << ". " << strerror(errno) << ". Exiting." << std::endl;
             _exit(EXIT_FAILURE);
         }
 
-        char** envp = _createCGIEnvironment();
-        char** argv = _createCGIArguments();
+        // Check if script exists and is readable
+        if (access(_cgi_script_path.c_str(), F_OK | R_OK) == -1) {
+            std::cerr << "ERROR: CGI child: Script not found or not readable: " << _cgi_script_path << ". " << strerror(errno) << ". Exiting." << std::endl;
+            _exit(EXIT_FAILURE);
+        }
 
-        std::cerr << "DEBUG: CGI child executing: " << _cgi_executable_path << " script: " << argv[1] << std::endl;
+        std::cerr << "DEBUG: CGI child: About to create CGI environment." << std::endl;
+        char** envp = _createCGIEnvironment();
+        std::cerr << "DEBUG: CGI child: About to create CGI arguments." << std::endl;
+        char** argv = _createCGIArguments();
+        std::cerr << "DEBUG: CGI child: Created env and args." << std::endl;
+
+        std::cerr << "DEBUG: CGI child: About to execve." << std::endl;
         execve(_cgi_executable_path.c_str(), argv, envp);
 
-        std::cerr << "ERROR: execve failed for CGI: " << _cgi_executable_path << ". Exiting." << std::endl;
+        // If execve fails, this code will be executed
+        std::cerr << "ERROR: execve failed for CGI: " << _cgi_executable_path << ". " << strerror(errno) << ". Exiting." << std::endl;
         _freeCGICharArrays(envp);
         _freeCGICharArrays(argv);
         _exit(EXIT_FAILURE);
@@ -448,7 +492,9 @@ bool CGIHandler::start() {
         } else {
             _state = CGIState::READING_OUTPUT;
         }
-        std::cout << "DEBUG: CGIHandler: Parent process forked. PID: " << _cgi_pid << ", Initial CGI State: " << _state << std::endl;
+        setStartTime(); // Record start time in parent
+        std::string debug_msg = "DEBUG: CGIHandler: Parent process forked. PID: " + std::to_string(_cgi_pid) + ", Initial CGI State: " + std::to_string(static_cast<int>(_state)) + "\n";
+        write(STDOUT_FILENO, debug_msg.c_str(), debug_msg.length());
     }
     return true;
 }
@@ -476,22 +522,18 @@ void CGIHandler::handleRead() {
     }
 
     char buffer[BUFF_SIZE];
+    std::cout << "DEBUG: CGIHandler::handleRead: Attempting to read from FD: " << _fd_stdout[0] << ". Buffer size before read: " << _cgi_response_buffer.size() << std::endl;
     ssize_t bytes_read = read(_fd_stdout[0], buffer, sizeof(buffer));
+
+    if (bytes_read < 0) { // Error reading
+        // perror("read from CGI stdout"); // TEMPORARY DEBUGGING: REMOVED
+    }
 
     if (bytes_read > 0) {
         _cgi_response_buffer.insert(_cgi_response_buffer.end(), buffer, buffer + bytes_read);
-        std::cout << "DEBUG: CGIHandler::handleRead: Read " << bytes_read << " bytes from CGI stdout. Total buffered: " << _cgi_response_buffer.size() << std::endl;
-    } else if (bytes_read == 0) {
-        std::cout << "DEBUG: CGIHandler::handleRead: EOF on CGI stdout pipe. CGI output finished." << std::endl;
-        _fd_stdout[0] = -2; // Mark as conceptually closed (read fully)
-        _parseCGIOutput();
-        if (_state != CGIState::WRITING_INPUT || (_request_body_ptr && _request_body_sent_bytes == _request_body_ptr->size())) {
-            _state = CGIState::COMPLETE;
-        } else if (!_request_body_ptr) {
-             _state = CGIState::COMPLETE;
-        }
+        std::cout << "DEBUG: CGIHandler::handleRead: Read " << bytes_read << " bytes from CGI stdout. Total buffered: " << _cgi_response_buffer.size() << ". Buffer size after read: " << _cgi_response_buffer.size() << std::endl;
     } else { // bytes_read == -1, treat as error
-        std::cerr << "ERROR: CGIHandler::handleRead: Error reading from CGI stdout pipe (FD: " << _fd_stdout[0] << "). Setting CGI_PROCESS_ERROR state." << std::endl;
+        // std::cerr << "ERROR: CGIHandler::handleRead: Error reading from CGI stdout pipe (FD: " << _fd_stdout[0] << "). Setting CGI_PROCESS_ERROR state." << std::endl;
         _state = CGIState::CGI_PROCESS_ERROR;
     }
 }
@@ -569,7 +611,21 @@ void CGIHandler::pollCGIProcess() {
                 _state = CGIState::CGI_PROCESS_ERROR;
             }
 
+            // If CGI process exited, ensure all output is read before parsing
+            while (!_cgi_stdout_eof_received) {
+                std::cout << "DEBUG: CGI process exited, but EOF not yet received on stdout. Attempting final read to drain pipe." << std::endl;
+                handleRead(); // This will set _cgi_stdout_eof_received to true on EOF
+                if (_cgi_stdout_eof_received) {
+                    std::cout << "DEBUG: Final read successful, EOF received." << std::endl;
+                    break;
+                }
+                // Small sleep to avoid busy-waiting if read() returns 0 but not EOF immediately
+                // This is a fallback for very unusual race conditions, usually not needed.
+                // usleep(1000); // 1ms sleep
+            }
+
             if (!_cgi_headers_parsed) {
+                std::cerr << "DEBUG: CGI child: Calling _parseCGIOutput()." << std::endl;
                 _parseCGIOutput();
             }
 
@@ -610,6 +666,22 @@ pid_t CGIHandler::getCGIPid() const {
     return _cgi_pid;
 }
 
+// Records the start time of the CGI process.
+void CGIHandler::setStartTime() {
+    _cgi_start_time = time(NULL);
+}
+
+// Checks if the CGI process has exceeded its timeout.
+bool CGIHandler::checkTimeout() const {
+    if (_state == CGIState::COMPLETE || _state == CGIState::TIMEOUT || _state == CGIState::CGI_PROCESS_ERROR) {
+        return false; // Already finished or in an error state
+    }
+    if (_cgi_start_time == 0) {
+        return false; // Not started yet
+    }
+    return (time(NULL) - _cgi_start_time) > CGI_TIMEOUT_SECONDS;
+}
+
 // Sets a flag to indicate if a timeout has occurred.
 void CGIHandler::setTimeout() {
     if (isFinished()) return;
@@ -632,6 +704,7 @@ void CGIHandler::_parseCGIOutput() {
         return;
     }
 
+    std::cout << "DEBUG: _parseCGIOutput: Buffer size at start: " << _cgi_response_buffer.size() << std::endl;
     std::string raw_output(_cgi_response_buffer.begin(), _cgi_response_buffer.end());
 
     std::cout << "DEBUG: _parseCGIOutput: Raw CGI Output (first 500 chars, escaped):\n---START RAW---\n";
@@ -645,6 +718,7 @@ void CGIHandler::_parseCGIOutput() {
         else std::cout << "\\" << static_cast<int>(static_cast<unsigned char>(c));
     }
     std::cout << "\n---END RAW---\n";
+    std::cout << "DEBUG: _parseCGIOutput: Total raw output size: " << raw_output.length() << std::endl;
 
     size_t header_end_pos = raw_output.find("\r\n\r\n");
     bool crlf_crlf_used = true;

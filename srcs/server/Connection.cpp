@@ -419,3 +419,7 @@ bool Connection::isCGI() const {
 CGIHandler* Connection::getCgiHandler() const {
     return _cgiHandler;
 }
+
+bool Connection::hasActiveCGI() const {
+    return _cgiHandler != NULL && !_cgiHandler->isFinished();
+}
