@@ -692,13 +692,13 @@ HttpResponse HttpRequestHandler::handleRequest(const HttpRequest& request, const
         }
     }
 
-    if (!methodAllowed) {
-        std::cerr << "ERROR: handleRequest: Method '" << request.method << "' not allowed for path '" << request.path << "', throwing 405." << std::endl;
-        throw Http405Exception("Method '" + request.method + "' not allowed for path '" + request.path + "'");
-    }
-
     // Dispatch based on method
     try {
+        if (!methodAllowed) {
+            std::cerr << "ERROR: handleRequest: Method '" << request.method << "' not allowed for path '" << request.path << "', throwing 405." << std::endl;
+            throw Http405Exception("Method '" + request.method + "' not allowed for path '" + request.path + "'");
+        }
+
         if (request.method == "GET") {
             return _handleGet(request, serverConfig, locationConfig);
         } else if (request.method == "POST") {
