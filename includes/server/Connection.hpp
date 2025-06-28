@@ -1,3 +1,4 @@
+// includes/server/Connection.hpp (Updated)
 #ifndef CONNECTION_HPP
 # define CONNECTION_HPP
 
@@ -74,8 +75,9 @@ private:
     std::string         _rawResponseToSend;         // The complete raw HTTP response string.
     size_t              _bytesSentFromRawResponse;  // Number of bytes sent from _rawResponseToSend.
 
-    // Private helper to process the parsed HTTP request.
+    // Private helper methods
     void _processRequest();
+    void _resetForNextRequest(); // <--- ADD THIS DECLARATION
 };
 
 #endif

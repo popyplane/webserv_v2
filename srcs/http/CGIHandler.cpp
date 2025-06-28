@@ -6,7 +6,7 @@
 /*   By: bvieilhe <bvieilhe@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/06/25 17:47:11 by baptistevie       #+#    #+#             */
-/*   Updated: 2025/06/27 05:23:55 by bvieilhe         ###   ########.fr       */
+/*   Updated: 2025/06/28 11:27:19 by bvieilhe         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -15,15 +15,17 @@
 // Constructor: Initializes CGIHandler with request and configuration details.
 CGIHandler::CGIHandler(const HttpRequest& request,
                        const ServerConfig* serverConfig,
-                       const LocationConfig* locationConfig)
+                       const LocationConfig* locationConfig,
+                       Server* serverPtr) // Added serverPtr
     : _request(request),
       _serverConfig(serverConfig),
       _locationConfig(locationConfig),
+      _serverPtr(serverPtr), // Initialize _serverPtr
       _cgi_script_path(),
       _cgi_executable_path(),
       _cgi_pid(-1),
-      _fd_stdin(),
-      _fd_stdout(),
+      _fd_stdin(), // Default construction, then set elements to -1
+      _fd_stdout(), // Default construction, then set elements to -1
       _cgi_response_buffer(),
       _final_http_response(),
       _state(CGIState::NOT_STARTED),
@@ -37,51 +39,14 @@ CGIHandler::CGIHandler(const HttpRequest& request,
     _fd_stdout[0] = -1;
     _fd_stdout[1] = -1;
 
-    // Determine CGI script path and executable path from config.
-    if (_locationConfig && !_locationConfig->root.empty() && !_locationConfig->cgiExecutables.empty()) {
-        std::string document_root_relative = _locationConfig->root;
-
-        char abs_path_buffer[PATH_MAX];
-        if (realpath(document_root_relative.c_str(), abs_path_buffer) == NULL) {
-            std::cerr << "ERROR: CGIHandler constructor: Failed to get absolute path for document root: " << document_root_relative << ". Setting CGI_PROCESS_ERROR state." << std::endl;
-            _state = CGIState::CGI_PROCESS_ERROR;
-            return;
-        }
-        std::string absoluteDocumentRoot = abs_path_buffer;
-
-        if (absoluteDocumentRoot.length() > 1 && absoluteDocumentRoot[absoluteDocumentRoot.length() - 1] == '/') {
-            absoluteDocumentRoot = absoluteDocumentRoot.substr(0, absoluteDocumentRoot.length() - 1);
-        }
-
-        size_t dot_pos = _request.path.rfind('.');
-        if (dot_pos == std::string::npos) {
-            std::cerr << "ERROR: CGIHandler: No file extension found in URI for CGI: " << _request.path << std::endl;
-            _state = CGIState::CGI_PROCESS_ERROR;
-            return;
-        }
-        std::string file_extension = _request.path.substr(dot_pos);
-
-        std::map<std::string, std::string>::const_iterator cgi_it = _locationConfig->cgiExecutables.find(file_extension);
-        if (cgi_it == _locationConfig->cgiExecutables.end()) {
-            std::cerr << "ERROR: CGIHandler: No CGI executable configured for extension: " << file_extension << " in location: " << _locationConfig->path << std::endl;
-            _state = CGIState::CGI_PROCESS_ERROR;
-            return;
-        }
-        _cgi_executable_path = cgi_it->second;
-
-        std::string normalizedRequestPath = _request.path;
-        if (!normalizedRequestPath.empty() && normalizedRequestPath[0] != '/') {
-            normalizedRequestPath = "/" + normalizedRequestPath;
-        }
-        _cgi_script_path = absoluteDocumentRoot + normalizedRequestPath;
-
-        std::cout << "DEBUG: CGIHandler constructor: _cgi_script_path set to (absolute): " << _cgi_script_path << std::endl;
-
-    } else {
-        std::cerr << "ERROR: CGIHandler: Incomplete location config for CGI setup (root or cgiExecutables empty)." << std::endl;
-        _state = CGIState::CGI_PROCESS_ERROR;
+    // Call the new helper method to initialize paths
+    if (!_initializeCGIPaths()) {
+        // If initialization fails, the state is already set to CGI_PROCESS_ERROR
+        // and constructor can just return.
+        return;
     }
 
+    // Set _request_body_ptr to NULL if the request body is empty
     if (request.body.empty()) {
         _request_body_ptr = NULL;
     }
@@ -149,6 +114,56 @@ CGIHandler& CGIHandler::operator=(const CGIHandler& other) {
         _cgi_exit_status = -1;
     }
     return *this;
+}
+
+// Private helper to determine CGI script and executable paths.
+bool CGIHandler::_initializeCGIPaths() {
+    if (!_locationConfig || _locationConfig->root.empty() || _locationConfig->cgiExecutables.empty()) {
+        std::cerr << "ERROR: CGIHandler: Incomplete location config for CGI setup (root or cgiExecutables empty)." << std::endl;
+        _state = CGIState::CGI_PROCESS_ERROR;
+        return false;
+    }
+
+    std::string document_root_relative = _locationConfig->root;
+
+    char abs_path_buffer[PATH_MAX];
+    if (realpath(document_root_relative.c_str(), abs_path_buffer) == NULL) {
+        std::cerr << "ERROR: CGIHandler constructor: Failed to get absolute path for document root: " << document_root_relative << ". Setting CGI_PROCESS_ERROR state." << std::endl;
+        _state = CGIState::CGI_PROCESS_ERROR;
+        return false;
+    }
+    std::string absoluteDocumentRoot = abs_path_buffer;
+
+    // Ensure no trailing slash for consistent path concatenation
+    if (absoluteDocumentRoot.length() > 1 && absoluteDocumentRoot[absoluteDocumentRoot.length() - 1] == '/') {
+        absoluteDocumentRoot = absoluteDocumentRoot.substr(0, absoluteDocumentRoot.length() - 1);
+    }
+
+    size_t dot_pos = _request.path.rfind('.');
+    if (dot_pos == std::string::npos) {
+        std::cerr << "ERROR: CGIHandler: No file extension found in URI for CGI: " << _request.path << std::endl;
+        _state = CGIState::CGI_PROCESS_ERROR;
+        return false;
+    }
+    std::string file_extension = _request.path.substr(dot_pos);
+
+    std::map<std::string, std::string>::const_iterator cgi_it = _locationConfig->cgiExecutables.find(file_extension);
+    if (cgi_it == _locationConfig->cgiExecutables.end()) {
+        std::cerr << "ERROR: CGIHandler: No CGI executable configured for extension: " << file_extension << " in location: " << _locationConfig->path << std::endl;
+        _state = CGIState::CGI_PROCESS_ERROR;
+        return false;
+    }
+    _cgi_executable_path = cgi_it->second;
+
+    std::string normalizedRequestPath = _request.path;
+    // Ensure request path starts with a slash if it doesn't already
+    if (!normalizedRequestPath.empty() && normalizedRequestPath[0] != '/') {
+        normalizedRequestPath = "/" + normalizedRequestPath;
+    }
+    _cgi_script_path = absoluteDocumentRoot + normalizedRequestPath;
+
+    std::cout << "DEBUG: CGIHandler constructor: _cgi_script_path set to (absolute): " << _cgi_script_path << std::endl;
+    return true;
 }
 
 // Sets a file descriptor to non-blocking mode.
@@ -700,4 +715,41 @@ void CGIHandler::_parseCGIOutput() {
 
     _cgi_headers_parsed = true;
     _state = CGIState::COMPLETE;
+}
+
+void CGIHandler::cleanup() { // <--- MODIFIED: No parameter
+    // Close pipe FDs and unregister them from the server's pollfds
+    // Use _serverPtr here instead of a passed parameter
+    if (_fd_stdin[0] != -1) {
+        close(_fd_stdin[0]);
+        _fd_stdin[0] = -1;
+    }
+    if (_fd_stdin[1] != -1) {
+        if (_serverPtr) _serverPtr->unregisterCgiFd(_fd_stdin[1]); // <--- Using _serverPtr
+        else close(_fd_stdin[1]); // Fallback if _serverPtr is somehow null
+        _fd_stdin[1] = -1;
+    }
+    if (_fd_stdout[0] != -1) {
+        if (_serverPtr) _serverPtr->unregisterCgiFd(_fd_stdout[0]); // <--- Using _serverPtr
+        else close(_fd_stdout[0]); // Fallback if _serverPtr is somehow null
+        _fd_stdout[0] = -1;
+    }
+    if (_fd_stdout[1] != -1) {
+        close(_fd_stdout[1]);
+        _fd_stdout[1] = -1;
+    }
+
+    // If CGI process is still running, attempt to terminate it
+    if (_cgi_pid != -1) {
+        int status;
+        pid_t result = waitpid(_cgi_pid, &status, WNOHANG);
+        if (result == 0) { // Child is still running
+            std::cerr << "WARNING: CGI process (PID " << _cgi_pid << ") still active during cleanup. Sending SIGTERM." << std::endl;
+            kill(_cgi_pid, SIGTERM);
+            waitpid(_cgi_pid, &status, 0); // Wait for termination
+        } else if (result == -1) {
+             // std::cerr << "DEBUG: waitpid for PID " << _cgi_pid << " returned -1 in cleanup (possibly already reaped)." << std::endl;
+        }
+        _cgi_pid = -1; // Mark as cleaned up
+    }
 }

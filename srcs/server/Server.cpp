@@ -1,15 +1,15 @@
-
+// srcs/server/Server.cpp
 #include "../../includes/server/Server.hpp"
 #include "../../includes/server/Connection.hpp"
 #include "../../includes/webserv.hpp" // For POLL_TIMEOUT_MS, BUFF_SIZE, etc.
 #include "../../includes/http/HttpRequestHandler.hpp" // For error responses
+#include "../../includes/utils/StringUtils.hpp" // For StringUtils::longToString
 
-// No longer needed explicitly if webserv.hpp pulls them
-// #include <iostream>
-// #include <unistd.h>
-// #include <algorithm>
-// #include <cerrno> // Forbidden
-// #include <cstring> // Forbidden
+#include <iostream> // For std::cerr, std::cout
+#include <unistd.h> // For close()
+#include <algorithm> // For std::find, std::remove
+// #include <cerrno> // Forbidden by subject
+#include <cstring> // For strerror (though generally forbidden for errno directly)
 
 // Constructor: Initializes the server with configurations.
 Server::Server(const std::vector<ServerConfig>& configs)
@@ -17,21 +17,23 @@ Server::Server(const std::vector<ServerConfig>& configs)
       _running(false),
       _timeout_ms(POLL_TIMEOUT_MS)
 {
-    // _pfds.reserve(MAX_CONNECTIONS); // C++98 compatible reserve
+    // _pfds.reserve(MAX_CONNECTIONS); // C++98 compatible reserve - typically handled by vector growth
 }
 
 // Destructor: Cleans up all connections and poll file descriptors.
 Server::~Server() {
     std::cout << "Server shutting down. Closing all open sockets." << std::endl;
 
+    // Clean up connections
     for (std::map<int, Connection*>::iterator it = _connections.begin(); it != _connections.end(); ++it) {
         delete it->second; // Calls ~Connection() which handles its socket and CGI FDs
     }
     _connections.clear();
 
+    // Clean up listen sockets
     for (std::map<int, Socket*>::iterator it = _listenSockets.begin(); it != _listenSockets.end(); ++it) {
         std::cout << "Closing listen socket FD: " << it->first << std::endl;
-        // The Socket destructor already calls close(_sockfd), so no explicit close here is needed.
+        // The Socket destructor already calls close(_sockfd), so just delete the object.
         delete it->second;
     }
     _listenSockets.clear();
@@ -45,8 +47,10 @@ bool Server::_setupListeners() {
     bool success = true;
     for (std::vector<ServerConfig>::const_iterator it = _serverConfigs.begin(); it != _serverConfigs.end(); ++it) {
         bool port_already_listening = false;
+        // Check if this port is already being listened on by another server block
         for (std::map<int, Socket*>::const_iterator ls_it = _listenSockets.begin(); ls_it != _listenSockets.end(); ++ls_it) {
-            if (ls_it->second->getPort() == it->port) {
+            // Compare by port number, assuming unique listener per port
+            if (ls_it->second->getPort() == static_cast<int>(it->port)) { // Cast to int for comparison
                 port_already_listening = true;
                 break;
             }
@@ -66,7 +70,7 @@ bool Server::_setupListeners() {
             continue;
         }
         std::cout << "DEBUG: Setting up listener on port: " << it->port << std::endl;
-        listenSocket->setServerBlock(&(*it));
+        listenSocket->setServerBlock(&(*it)); // This line is correct now due to const correctness fix
         _listenSockets[listenSocket->getSocketFD()] = listenSocket;
         _addFdToPoll(listenSocket->getSocketFD(), POLLIN);
         std::cout << "listen socket : " << listenSocket->getSocketFD() << std::endl;
@@ -76,6 +80,19 @@ bool Server::_setupListeners() {
 
 // Adds a file descriptor to the pollfd list.
 void Server::_addFdToPoll(int fd, short events) {
+    if (fd == -1) {
+        std::cerr << "WARNING: Attempted to add invalid FD (-1) to poll list." << std::endl;
+        return;
+    }
+    // Check if FD already exists to prevent duplicates
+    for (size_t i = 0; i < _pfds.size(); ++i) {
+        if (_pfds[i].fd == fd) {
+            std::cerr << "WARNING: FD " << fd << " already exists in poll list. Updating events instead." << std::endl;
+            _pfds[i].events = events; // Update events
+            return;
+        }
+    }
+
     pollfd pfd;
     pfd.fd = fd;
     pfd.events = events;
@@ -118,7 +135,7 @@ void Server::registerCgiFd(int cgi_fd, Connection* conn, short events) {
     }
     if (_cgiFdsToConnection.count(cgi_fd)) {
         std::cout << "DEBUG: registerCgiFd: Attempting to register FD " << cgi_fd << " for conn FD " << conn->getSocketFD() << ". _cgiFdsToConnection size (before): " << _cgiFdsToConnection.size() << std::endl;
-        updateFdEvents(cgi_fd, events);
+        updateFdEvents(cgi_fd, events); // If already exists, just update events
     } else {
         std::cout << "DEBUG: registerCgiFd: Attempting to register FD " << cgi_fd << " for conn FD " << conn->getSocketFD() << ". _cgiFdsToConnection size (before): " << _cgiFdsToConnection.size() << std::endl;
         _cgiFdsToConnection[cgi_fd] = conn;
@@ -133,6 +150,13 @@ void Server::unregisterCgiFd(int cgi_fd) {
     if (_cgiFdsToConnection.count(cgi_fd)) {
         _cgiFdsToConnection.erase(cgi_fd);
         _removeFdFromPoll(cgi_fd);
+        // It's crucial to close the CGI FD here if it was opened by the server
+        if (cgi_fd != -1) {
+            int close_res = close(cgi_fd);
+            if (close_res < 0) {
+                perror("Error closing unregistered CGI FD");
+            }
+        }
         std::cout << "DEBUG: unregisterCgiFd: Unregistered CGI FD " << cgi_fd << ". _cgiFdsToConnection size (after): " << _cgiFdsToConnection.size() << std::endl;
     } else {
         std::cerr << "WARNING: unregisterCgiFd: Attempted to unregister non-existent CGI FD " << cgi_fd << std::endl;
@@ -142,10 +166,12 @@ void Server::unregisterCgiFd(int cgi_fd) {
 // Accepts a new client connection.
 void Server::_acceptNewConnection(int listen_fd) {
     ServerConfig* associatedConfig = NULL;
+    // Find the associated ServerConfig for this listening socket
     if (_listenSockets.count(listen_fd)) {
-        associatedConfig = _listenSockets[listen_fd]->getServerBlock();
+        associatedConfig = const_cast<ServerConfig*>(_listenSockets[listen_fd]->getServerBlock()); // Remove constness for now if ServerConfig* is expected elsewhere
     } else {
         std::cerr << "ERROR: _acceptNewConnection: Listen FD " << listen_fd << " not found in _listenSockets map. Cannot get config." << std::endl;
+        return; // Cannot proceed without config
     }
 
     // acceptConnection returns a new client_fd or -1 on error
@@ -155,39 +181,43 @@ void Server::_acceptNewConnection(int listen_fd) {
         newConnection->setSocketFD(client_fd);
         newConnection->setServerBlock(associatedConfig);
         _connections[client_fd] = newConnection;
-        _addFdToPoll(client_fd, POLLIN);
+        _addFdToPoll(client_fd, POLLIN); // Start polling for reads on the new connection
         std::cout << "DEBUG: Accepted new connection on FD: " << client_fd << std::endl;
         std::cout << "DEBUG: _acceptNewConnection: _connections size (after adding client FD " << client_fd << "): " << _connections.size() << std::endl;
-    } else if (client_fd == -1) { // Error accepting
-        std::cerr << "Error accepting new connection on listen FD " << listen_fd << "." << std::endl;
+    } else if (client_fd == -1) { // Error accepting (e.g., EINTR, EAGAIN/EWOULDBLOCK if non-blocking and no connections)
+        // perror("accept"); // Forbidden to use errno directly.
+        // Log the error using a generic message.
+        std::cerr << "Error accepting new connection on listen FD " << listen_fd << ". (May be non-blocking)." << std::endl;
     }
-    // If client_fd is 0 (non-blocking, no pending connections), do nothing.
+    // If client_fd is 0 (shouldn't happen for accept, typically -1 on error or valid FD)
 }
 
 // Handles events on client sockets.
 void Server::_handleClientEvent(int client_fd, short revents) {
     if (_connections.count(client_fd) == 0) {
-        std::cerr << "ERROR: _handleClientEvent: Client FD " << client_fd << " not found in _connections map. Removing from poll." << std::endl;
+        std::cerr << "ERROR: _handleClientEvent: Client FD " << client_fd << " not found in _connections map. Removing from poll and closing." << std::endl;
         _removeFdFromPoll(client_fd);
-        if (client_fd != -1) close(client_fd);
+        if (client_fd != -1) close(client_fd); // Ensure closing if orphaned
         return;
     }
 
     Connection* conn = _connections[client_fd];
-    std::cout << "DEBUG: FD " << client_fd << " is a client connection. State: " << conn->getState() << std::endl;
+    std::cout << "DEBUG: FD " << client_fd << " is a client connection. State: " << conn->getState() << ", Revents: " << revents << std::endl;
 
     if (revents & POLLHUP) {
-        std::cout << "Client FD " << client_fd << " hung up." << std::endl;
+        std::cout << "Client FD " << client_fd << " hung up. Marking for CLOSING." << std::endl;
         conn->setState(Connection::CLOSING);
-    } else if (revents & POLLERR) {
-        std::cerr << "Error on client FD " << client_fd << ". Revents: " << revents << std::endl;
+    } else if (revents & (POLLERR | POLLNVAL)) { // POLLNVAL for invalid FD
+        std::cerr << "Error or invalid FD on client FD " << client_fd << ". Revents: " << revents << ". Marking for CLOSING." << std::endl;
         conn->setState(Connection::CLOSING);
     } else if (revents & POLLIN && conn->getState() == Connection::READING) {
+        std::cout << "DEBUG: Client FD " << client_fd << ": POLLIN detected in READING state. Calling handleRead()." << std::endl;
         conn->handleRead();
     } else if (revents & POLLOUT && conn->getState() == Connection::WRITING) {
+        std::cout << "DEBUG: Client FD " << client_fd << ": POLLOUT detected in WRITING state. Calling handleWrite()." << std::endl;
         conn->handleWrite();
     } else {
-        std::cout << "DEBUG: Client FD " << client_fd << " has revents " << revents << " but not handled in current state " << conn->getState() << "." << std::endl;
+        std::cout << "DEBUG: Client FD " << client_fd << " has revents " << revents << " but not handled in current state " << conn->getState() << ". Skipping." << std::endl;
     }
 }
 
@@ -209,6 +239,7 @@ void Server::_handleCgiEvent(int cgi_fd, short revents) {
         return;
     }
 
+    // Ensure the associated client connection still exists
     if (_connections.count(conn->getSocketFD()) == 0) {
         std::cerr << "ERROR: CGI pipe FD " << cgi_fd << ": Associated client connection FD " << conn->getSocketFD() << " not found. Removing CGI FD from poll and closing." << std::endl;
         _removeFdFromPoll(cgi_fd);
@@ -227,32 +258,38 @@ void Server::_handleCgiEvent(int cgi_fd, short revents) {
         return;
     }
 
-    std::cout << "DEBUG: FD " << cgi_fd << " is a CGI pipe (found in _cgiFdsToConnection). Associated Client FD: " << conn->getSocketFD() << std::endl;
+    std::cout << "DEBUG: FD " << cgi_fd << " is a CGI pipe (found in _cgiFdsToConnection). Associated Client FD: " << conn->getSocketFD() << ", Revents: " << revents << std::endl;
 
     if (revents & POLLIN) {
-        std::cout << "DEBUG: CGI pipe FD " << cgi_fd << ": POLLIN detected (read end of stdout pipe)." << std::endl;
+        std::cout << "DEBUG: CGI pipe FD " << cgi_fd << ": POLLIN detected (read end of stdout pipe). Calling cgiHandler->handleRead()." << std::endl;
         cgiHandler->handleRead();
     }
     if (revents & POLLOUT) {
-        std::cout << "DEBUG: CGI pipe FD " << cgi_fd << ": POLLOUT detected (write end of stdin pipe)." << std::endl;
+        std::cout << "DEBUG: CGI pipe FD " << cgi_fd << ": POLLOUT detected (write end of stdin pipe). Calling cgiHandler->handleWrite()." << std::endl;
         cgiHandler->handleWrite();
     }
-    if (revents & (POLLERR | POLLNVAL)) {
+    if (revents & (POLLERR | POLLNVAL)) { // POLLNVAL for invalid FD, POLLERR for error on FD
         std::cerr << "ERROR: CGI pipe FD " << cgi_fd << " received POLLERR/POLLNVAL. Revents: " << revents << ". Marking CGI as error." << std::endl;
         cgiHandler->setState(CGIState::CGI_PROCESS_ERROR);
     }
+    // POLLHUP indicates the other end of the pipe has closed.
+    // For the read pipe (CGI stdout), this means the CGI has finished writing.
+    // For the write pipe (CGI stdin), this means the CGI read all its input.
     if (revents & POLLHUP) {
-        std::cout << "DEBUG: CGI pipe FD " << cgi_fd << ": POLLHUP detected (write end of pipe closed by CGI). Ensuring all data read and allowing pollCGIProcess to finalize." << std::endl;
+        std::cout << "DEBUG: CGI pipe FD " << cgi_fd << ": POLLHUP detected. " << std::endl;
+        // Ensure any remaining data is read if it's the stdout pipe and POLLIN was also set
         if (revents & POLLIN) {
+            std::cout << "DEBUG:     POLLHUP with POLLIN: attempting final read." << std::endl;
             cgiHandler->handleRead();
         }
     }
 
+    // Call pollCGIProcess to manage child process status (waitpid) and state transitions
     cgiHandler->pollCGIProcess();
 
     if (cgiHandler->isFinished()) {
         std::cout << "DEBUG: Server loop: CGI for client FD " << conn->getSocketFD() << " finished. Finalizing connection." << std::endl;
-        conn->finalizeCGI();
+        conn->finalizeCGI(); // This should transition connection state and potentially trigger response sending
     }
 }
 
@@ -267,25 +304,26 @@ void Server::_reapClosedConnections() {
 
     for (size_t i = 0; i < fds_to_reap.size(); ++i) {
         int client_fd = fds_to_reap[i];
-        if (_connections.count(client_fd) == 0) {
+        if (_connections.count(client_fd) == 0) { // Safety check
             continue;
         }
 
         std::cout << "DEBUG: Reaping closed connection FD: " << client_fd << std::endl;
 
-        // Connection destructor handles its CGIHandler cleanup.
+        // Connection destructor handles its CGIHandler cleanup and closes its own socket
         _removeFdFromPoll(client_fd); // Remove client_fd from main poll list
-        // No explicit close(client_fd) here, as Connection destructor handles it
         delete _connections[client_fd];
         _connections.erase(client_fd);
         std::cout << "DEBUG: _reapClosedConnections: _connections size (after reaping FD " << client_fd << "): " << _connections.size() << std::endl;
     }
 
+    // Clean up CGI FDs that might be orphaned if their parent connection was reaped earlier
     std::vector<int> cgi_fds_to_remove;
     for (std::map<int, Connection*>::iterator it = _cgiFdsToConnection.begin(); it != _cgiFdsToConnection.end(); ++it) {
-        // If the associated client connection is no longer in _connections, this CGI FD is orphaned.
-        if (it->second && _connections.count(it->second->getSocketFD()) == 0) {
-            std::cout << "DEBUG: Found CGI pipe FD " << it->first << " orphaned from client FD " << it->second->getSocketFD() << std::endl;
+        // If the associated client connection is no longer in _connections (i.e., it was reaped), this CGI FD is orphaned.
+        // Also check if it->second is NULL, which indicates a serious error or race condition.
+        if (!it->second || _connections.count(it->second->getSocketFD()) == 0) {
+            std::cout << "DEBUG: Found CGI pipe FD " << it->first << " orphaned from client FD (possibly reaped). Marking for removal." << std::endl;
             cgi_fds_to_remove.push_back(it->first);
         }
     }
@@ -294,7 +332,12 @@ void Server::_reapClosedConnections() {
         std::cerr << "WARNING: Found orphaned CGI FD " << cgi_fd << ". Removing from poll and closing." << std::endl;
         _removeFdFromPoll(cgi_fd);
         _cgiFdsToConnection.erase(cgi_fd);
-        if (cgi_fd != -1) close(cgi_fd);
+        if (cgi_fd != -1) {
+            int close_res = close(cgi_fd);
+            if (close_res < 0) {
+                perror("Error closing orphaned CGI FD");
+            }
+        }
     }
 }
 
@@ -310,14 +353,23 @@ void Server::run() {
     std::cout << "Server running and listening..." << std::endl;
 
     while (_running) {
-        std::cout << "DEBUG: --- Poll Cycle Start ---" << std::endl;
-        std::cout << "DEBUG: _pfds size: " << _pfds.size() << ", _connections size: " << _connections.size() << ", _cgiFdsToConnection size: " << _cgiFdsToConnection.size() << std::endl;
+        // std::cout << "DEBUG: --- Poll Cycle Start ---" << std::endl;
+        // std::cout << "DEBUG: _pfds size: " << _pfds.size() << ", _connections size: " << _connections.size() << ", _cgiFdsToConnection size: " << _cgiFdsToConnection.size() << std::endl;
+
+        // Make sure _pfds is not empty before calling poll
+        if (_pfds.empty()) {
+            std::cout << "INFO: No active file descriptors to poll. Server will idle or exit." << std::endl;
+            // Depending on desired behavior, could sleep or exit
+            break; // Exit if no FDs to poll
+        }
 
         int num_events = poll(_pfds.data(), _pfds.size(), _timeout_ms);
 
         if (num_events < 0) {
+            // As per subject: "No errno check after read or write"
+            // However, poll itself can return -1 on error. EINTR is common.
+            // We'll just log a generic error and shut down.
             std::cerr << "Poll error. Server shutting down." << std::endl;
-            // No errno check for EINTR
             _running = false;
             break;
         }
@@ -325,19 +377,20 @@ void Server::run() {
         if (num_events == 0) {
             // Poll timeout. No events.
         } else {
-            // Iterate backwards for safe removal
+            // Iterate backwards to safely remove elements during iteration
             for (long i = _pfds.size() - 1; i >= 0; --i) {
                 int current_fd = _pfds[i].fd;
                 short revents = _pfds[i].revents;
 
-                if (revents == 0) {
+                if (revents == 0) { // No events on this FD
                     continue;
                 }
 
-                std::cout << "DEBUG: Processing FD " << current_fd << " with revents " << revents << std::endl;
+                // std::cout << "DEBUG: Processing FD " << current_fd << " with revents " << revents << std::endl;
 
+                // Determine if it's a listen socket, client connection, or CGI pipe
                 if (_listenSockets.count(current_fd)) {
-                    std::cout << "DEBUG: FD " << current_fd << " is a listen socket." << std::endl;
+                    // std::cout << "DEBUG: FD " << current_fd << " is a listen socket." << std::endl;
                     if (revents & POLLIN) {
                         _acceptNewConnection(current_fd);
                     }
@@ -349,14 +402,22 @@ void Server::run() {
                     _handleCgiEvent(current_fd, revents);
                 }
                 else {
+                    // This case indicates an FD in _pfds that isn't managed by our maps.
+                    // This can happen if an FD was removed from _connections or _cgiFdsToConnection
+                    // but not from _pfds, or if it's an old FD that shouldn't be there.
                     std::cerr << "WARNING: Unknown FD " << current_fd << " with revents " << revents << " in poll list. Attempting to remove and close." << std::endl;
-                    _removeFdFromPoll(current_fd);
-                    if (current_fd != -1) close(current_fd);
+                    _removeFdFromPoll(current_fd); // Remove from poll list
+                    if (current_fd != -1) {
+                        int close_res = close(current_fd); // Close the FD
+                        if (close_res < 0) {
+                            perror("Error closing unknown FD");
+                        }
+                    }
                 }
             }
         }
-        _reapClosedConnections();
-        std::cout << "DEBUG: --- Poll Cycle End ---" << std::endl;
+        _reapClosedConnections(); // Clean up connections marked for closing
+        // std::cout << "DEBUG: --- Poll Cycle End ---" << std::endl;
     }
 }
 
