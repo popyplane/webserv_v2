@@ -1,4 +1,3 @@
-// includes/server/Socket.hpp
 #ifndef SOCKET_HPP
 # define SOCKET_HPP
 
@@ -10,53 +9,35 @@
 # include <netdb.h>
 # include <unistd.h>
 
-// Represents a network socket for server communication.
 class Socket {
-    private:
-        int                     _sockfd; // The socket file descriptor.
-        socklen_t               _sin_size; // Size of the socket address structure.
-        struct sockaddr_storage _addr; // Generic socket address structure.
-        std::string             _port; // The port the socket is bound to.
-        const ServerConfig* _server_block; // Pointer to the associated server configuration.
+	private:
+		int						_sockfd;		// The socket file descriptor.
+		socklen_t				_sin_size;		// Size of the socket address structure.
+		struct sockaddr_storage	_addr;			// Generic socket address structure.
+		std::string				_port;			// The port the socket is bound to.
+		const ServerConfig*		_server_block;	// Pointer to the associated server configuration.
 
-    public:
-        // Constructor: Initializes a new Socket object.
-        Socket();
-        // Destructor: Cleans up Socket resources.
-        virtual ~Socket();
-        // Copy Constructor: Copies the socket file descriptor and size.
-        Socket(const Socket& cpy);
-        // Assignment Operator: Assigns socket file descriptor and size from another Socket.
-        Socket& operator=(const Socket& src);
+	public:
+		Socket();
+		virtual ~Socket();
+		Socket(const Socket& cpy);
+		Socket& operator=(const Socket& src);
 
-        // Creates a new socket.
-        void    createSocket(int ai_family, int ai_socktype, int ai_protocol);
-        // Binds the socket to a specified IP address and port.
-        void    bindSocket(struct sockaddr* ai_addr, socklen_t ai_addrlen);
-        // Sets the socket to listen for incoming connections.
-        void    listenOnSocket(void);
-        // Accepts an incoming connection on the listening socket, returning the new client FD.
-        int     acceptConnection(int listenSock); // Changed return type to int
-        // Prints information about the accepted connection to console.
-        void    printConnection(void);
-        // Initializes a listening socket by creating, binding, and listening.
-        bool    initListenSocket(const char* port); // Changed return type to bool
-        // Closes the socket file descriptor.
-        void    closeSocket(void);
+		void	createSocket(int ai_family, int ai_socktype, int ai_protocol);
+		void	bindSocket(struct sockaddr* ai_addr, socklen_t ai_addrlen);
+		void	listenOnSocket(void);
+		int		acceptConnection(int listenSock);
+		void	printConnection(void);
+		bool	initListenSocket(const char* port);
+		void	closeSocket(void);
 
-        // Returns the socket file descriptor.
-        int             getSocketFD(void);
-        // Returns the port number as an integer.
-        int             getPort(void);
-        // Returns a pointer to the associated ServerConfig block.
-        const ServerConfig* getServerBlock(void);
+		int					getSocketFD(void);
+		int					getPort(void);
+		const ServerConfig*	getServerBlock(void);
 
-        // Sets the socket file descriptor.
-        void    setSocketFD(int fd);
-        // Sets the port string for the socket.
-        void    setPortFD(std::string port);
-        // Sets the associated ServerConfig block.
-        void    setServerBlock(const ServerConfig* sb); // Changed to const ServerConfig*
+		void	setSocketFD(int fd);
+		void	setPortFD(std::string port);
+		void	setServerBlock(const ServerConfig* sb);
 };
 
 #endif

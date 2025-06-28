@@ -6,7 +6,7 @@
 /*   By: bvieilhe <bvieilhe@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/06/23 11:22:17 by baptistevie       #+#    #+#             */
-/*   Updated: 2025/06/26 21:15:21 by bvieilhe         ###   ########.fr       */
+/*   Updated: 2025/06/28 18:28:53 by bvieilhe         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -19,9 +19,9 @@ ConfigLoader::ConfigLoader() {}
 ConfigLoader::~ConfigLoader() {}
 
 // Main function to load the entire server configuration from the AST.
-std::vector<ServerConfig>   ConfigLoader::loadConfig(const std::vector<ASTnode *> & astNodes)
+std::vector<ServerConfig>	ConfigLoader::loadConfig(const std::vector<ASTnode *> & astNodes)
 {
-	std::vector<ServerConfig>   loadedServers;
+	std::vector<ServerConfig>	loadedServers;
 
 	// Iterate through top-level AST nodes, expecting server blocks.
 	for (size_t i = 0; i < astNodes.size(); ++i) {

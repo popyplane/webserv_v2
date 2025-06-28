@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   ASTnode.hpp                                        :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: baptistevieilhescaze <baptistevieilhesc    +#+  +:+       +#+        */
+/*   By: bvieilhe <bvieilhe@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/06/21 10:25:47 by baptistevie       #+#    #+#             */
-/*   Updated: 2025/06/21 10:25:47 by baptistevie      ###   ########.fr       */
+/*   Updated: 2025/06/28 17:31:35 by bvieilhe         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -28,8 +28,8 @@ class ASTnode {
 // Represents a directive in the configuration file (e.g., 'listen 8080;').
 class DirectiveNode : public ASTnode {
 	public :
-		std::string					name; // Name of the directive (e.g., "listen").
-		std::vector<std::string>	args; // Arguments of the directive.
+		std::string					name;
+		std::vector<std::string>	args;
 
 		DirectiveNode() : ASTnode() {}
 };

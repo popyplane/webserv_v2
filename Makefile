@@ -3,16 +3,16 @@
 #                                                         :::      ::::::::    #
 #    Makefile                                           :+:      :+:    :+:    #
 #                                                     +:+ +:+         +:+      #
-#    By: baptistevieilhescaze <baptistevieilhesc    +#+  +:+       +#+         #
+#    By: bvieilhe <bvieilhe@student.42.fr>          +#+  +:+       +#+         #
 #                                                 +#+#+#+#+#+   +#+            #
 #    Created: 2025/06/25 22:41:20 by baptistevie       #+#    #+#              #
-#    Updated: 2025/06/26 18:43:44 by baptistevie      ###   ########.fr        #
+#    Updated: 2025/06/28 15:09:11 by bvieilhe         ###   ########.fr        #
 #                                                                              #
 # **************************************************************************** #
 
 # Compiler and flags
 CXX = c++
-CXXFLAGS = -Wall -Wextra -Werror -std=c++98 -I./includes
+CXXFLAGS = -Wall -Wextra -Werror -I./includes
 
 # Directories
 SRCDIR = srcs

@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   token.hpp                                          :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: baptistevieilhescaze <baptistevieilhesc    +#+  +:+       +#+        */
+/*   By: bvieilhe <bvieilhe@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/06/02 17:22:40 by baptistevie       #+#    #+#             */
-/*   Updated: 2025/06/22 15:56:59 by baptistevie      ###   ########.fr       */
+/*   Updated: 2025/06/28 17:48:50 by bvieilhe         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -45,18 +45,17 @@ typedef enum tokenType {
 	T_ERROR_LOG,
 
 	// Other data/values.
-	T_IDENTIFIER, // Generic identifier (e.g., variable names, unquoted strings).
-	T_STRING, // Quoted string literal.
-	T_NUMBER // Numeric value.
+	T_IDENTIFIER,		// Generic identifier (e.g., variable names, unquoted strings).
+	T_STRING,			// Quoted string literal.
+	T_NUMBER			// Numeric value.
 } tokenType;
 
 // Represents a single token extracted by the lexer.
 typedef struct token {
-	tokenType   type; // The type of the token.
-	std::string value; // The string value of the token.
-	int         line, column; // Line and column number where the token was found.
+	tokenType	type;
+	std::string	value;
+	int			line, column;
 
-	// Constructor: Initializes token properties.
 	token(tokenType type, std::string value, int line, int column)
 		: type(type), value(value), line(line), column(column)
 		{}
