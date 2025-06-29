@@ -48,7 +48,7 @@ public:
 
 	~CGIHandler();
 
-	CGIHandler(const CGIHandler& other);
+	CGIHandler(const CGIHandler& other); // Updated declaration
 	CGIHandler& operator=(const CGIHandler& other);
 
 	bool				start();

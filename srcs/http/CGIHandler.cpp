@@ -25,21 +25,19 @@ CGIHandler::CGIHandler(const HttpRequest& request,
 	  _cgi_script_path(),
 	  _cgi_executable_path(),
 	  _cgi_pid(-1),
-	  _fd_stdin(), // Default construction, then set elements to -1
-	  _fd_stdout(), // Default construction, then set elements to -1
+	  _fd_stdin{-1, -1}, // Initialize array members
+	  _fd_stdout{-1, -1}, // Initialize array members
 	  _cgi_response_buffer(),
 	  _final_http_response(),
 	  _state(CGIState::NOT_STARTED),
 	  _cgi_headers_parsed(false),
 	  _cgi_exit_status(-1),
 	  _cgi_start_time(0),
+	  _cgi_stdout_eof_received(false), // Explicitly initialize
 	  _request_body_ptr(&request.body),
 	  _request_body_sent_bytes(0)
 {
-	_fd_stdin[0] = -1;
-	_fd_stdin[1] = -1;
-	_fd_stdout[0] = -1;
-	_fd_stdout[1] = -1;
+	// Body can be empty now as all members are initialized in the list
 
 	// Call the new helper method to initialize paths
 	if (!_initializeCGIPaths()) {
@@ -70,26 +68,26 @@ CGIHandler::~CGIHandler() {
 
 // Copy Constructor: Disallows copying to prevent issues with file descriptors and PIDs.
 CGIHandler::CGIHandler(const CGIHandler& other)
-	: _request(other._request),
-	  _serverConfig(other._serverConfig),
-	  _locationConfig(other._locationConfig),
-	  _cgi_script_path(other._cgi_script_path),
-	  _cgi_executable_path(other._cgi_executable_path),
-	  _cgi_pid(-1),
-	  _fd_stdin(),
-	  _fd_stdout(),
-	  _cgi_response_buffer(),
-	  _final_http_response(),
-	  _state(CGIState::NOT_STARTED),
-	  _cgi_headers_parsed(false),
-	  _cgi_exit_status(-1),
-	  _cgi_start_time(0),
-	  _cgi_stdout_eof_received(false),
-	  _request_body_ptr(other._request_body_ptr),
-	  _request_body_sent_bytes(0)
+    : _request(other._request),
+      _serverConfig(other._serverConfig),
+      _locationConfig(other._locationConfig),
+      _serverPtr(other._serverPtr), // Initialize _serverPtr
+      _cgi_script_path(other._cgi_script_path),
+      _cgi_executable_path(other._cgi_executable_path),
+      _cgi_pid(-1),
+      _fd_stdin{-1, -1}, // Initialize array members
+      _fd_stdout{-1, -1}, // Initialize array members
+      _cgi_response_buffer(),
+      _final_http_response(),
+      _state(CGIState::NOT_STARTED),
+      _cgi_headers_parsed(false),
+      _cgi_exit_status(-1),
+      _cgi_start_time(0),
+      _cgi_stdout_eof_received(false),
+      _request_body_ptr(other._request_body_ptr),
+      _request_body_sent_bytes(0)
 {
-	_fd_stdin[0] = -1; _fd_stdin[1] = -1;
-	_fd_stdout[0] = -1; _fd_stdout[1] = -1;
+    // Body can be empty now as all members are initialized in the list
 }
 
 // Assignment Operator: Disallows assignment to prevent issues with file descriptors and PIDs.
@@ -363,6 +361,10 @@ bool CGIHandler::start() {
 		return false;
 	}
 
+	// Initialize FDs to -1 before pipe calls
+	_fd_stdin[0] = -1; _fd_stdin[1] = -1;
+	_fd_stdout[0] = -1; _fd_stdout[1] = -1;
+
 	if (pipe(_fd_stdin) == -1) {
 		std::cerr << "ERROR: Failed to create stdin pipe." << std::endl;
 		_state = CGIState::FORK_FAILED;
@@ -370,8 +372,7 @@ bool CGIHandler::start() {
 	}
 	if (pipe(_fd_stdout) == -1) {
 		std::cerr << "ERROR: Failed to create stdout pipe." << std::endl;
-		if (_fd_stdin[0] != -1) { close(_fd_stdin[0]); _fd_stdin[0] = -1; }
-		if (_fd_stdin[1] != -1) { close(_fd_stdin[1]); _fd_stdin[1] = -1; }
+		_closePipes(); // Close stdin pipes if stdout pipe creation fails
 		_state = CGIState::FORK_FAILED;
 		return false;
 	}
@@ -388,27 +389,21 @@ bool CGIHandler::start() {
 	}
 
 	if (!_setNonBlocking(_fd_stdin[1]) || !_setNonBlocking(_fd_stdout[0])) {
-		if (_fd_stdin[0] != -1) { close(_fd_stdin[0]); _fd_stdin[0] = -1; }
-		if (_fd_stdin[1] != -1) { close(_fd_stdin[1]); _fd_stdin[1] = -1; }
-		if (_fd_stdout[0] != -1) { close(_fd_stdout[0]); _fd_stdout[0] = -1; }
-		if (_fd_stdout[1] != -1) { close(_fd_stdout[1]); _fd_stdout[1] = -1; }
+		_closePipes(); // Close all pipes if setting non-blocking fails
 		return false;
 	}
 
 	_cgi_pid = fork();
 	if (_cgi_pid == -1) {
 		std::cerr << "ERROR: Failed to fork CGI process." << std::endl;
-		if (_fd_stdin[0] != -1) { close(_fd_stdin[0]); _fd_stdin[0] = -1; }
-		if (_fd_stdin[1] != -1) { close(_fd_stdin[1]); _fd_stdin[1] = -1; }
-		if (_fd_stdout[0] != -1) { close(_fd_stdout[0]); _fd_stdout[0] = -1; }
-		if (_fd_stdout[1] != -1) { close(_fd_stdout[1]); _fd_stdout[1] = -1; }
+		_closePipes(); // Close all pipes if fork fails
 		_state = CGIState::FORK_FAILED;
 		return false;
 	}
 
 	if (_cgi_pid == 0) { // Child process.
-		close(_fd_stdin[1]);
-		close(_fd_stdout[0]);
+		close(_fd_stdin[1]); // Close parent's write end of stdin pipe
+		close(_fd_stdout[0]); // Close parent's read end of stdout pipe
 
 		if (dup2(_fd_stdin[0], STDIN_FILENO) == -1) {
 			std::cerr << "ERROR: dup2 STDIN_FILENO failed in CGI child. " << strerror(errno) << ". Exiting." << std::endl;
@@ -419,8 +414,8 @@ bool CGIHandler::start() {
 			_exit(EXIT_FAILURE);
 		}
 
-		close(_fd_stdin[0]);
-		close(_fd_stdout[1]);
+		close(_fd_stdin[0]); // Close child's read end of stdin pipe
+		close(_fd_stdout[1]); // Close child's write end of stdout pipe
 
 		std::string cgi_working_dir_relative;
 		if (_locationConfig && !_locationConfig->root.empty()) {
@@ -466,8 +461,8 @@ bool CGIHandler::start() {
 		_freeCGICharArrays(argv);
 		_exit(EXIT_FAILURE);
 	} else { // Parent process.
-		close(_fd_stdin[0]);
-		close(_fd_stdout[1]);
+		close(_fd_stdin[0]); // Close child's read end in parent
+		close(_fd_stdout[1]); // Close child's write end in parent
 
 		if (_request.method == "POST" && _request_body_ptr && !_request_body_ptr->empty()) {
 			_state = CGIState::WRITING_INPUT;
