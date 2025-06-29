@@ -3,19 +3,17 @@
 /*                                                        :::      ::::::::   */
 /*   ConfigLoader.cpp                                   :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: bvieilhe <bvieilhe@student.42.fr>          +#+  +:+       +#+        */
+/*   By: baptistevieilhescaze <baptistevieilhesc    +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/06/23 11:22:17 by baptistevie       #+#    #+#             */
-/*   Updated: 2025/06/28 20:53:45 by bvieilhe         ###   ########.fr       */
+/*   Updated: 2025/06/29 01:38:29 by baptistevie      ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "../../includes/config/ConfigLoader.hpp"
 
-// Constructor: Initializes the ConfigLoader.
 ConfigLoader::ConfigLoader() {}
 
-// Destructor: Cleans up ConfigLoader resources.
 ConfigLoader::~ConfigLoader() {}
 
 // Main function to load the entire server configuration from the AST.

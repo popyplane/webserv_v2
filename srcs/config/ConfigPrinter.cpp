@@ -165,4 +165,4 @@ namespace ConfigPrinter {
         os << "--- End of Configuration ---\n";
     }
 
-} // namespace ConfigPrinter
+}

@@ -6,14 +6,13 @@
 /*   By: baptistevieilhescaze <baptistevieilhesc    +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/06/23 15:27:00 by baptistevie       #+#    #+#             */
-/*   Updated: 2025/06/24 12:10:55 by baptistevie      ###   ########.fr       */
+/*   Updated: 2025/06/29 01:52:48 by baptistevie      ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "../../includes/http/HttpRequest.hpp"
 #include <cctype> // For std::isprint
 
-// Constructor: Initializes HttpRequest members with default values.
 HttpRequest::HttpRequest() : expectedBodyLength(0), currentState(RECV_REQUEST_LINE)
 {}
 

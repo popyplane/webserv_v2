@@ -83,9 +83,7 @@ int     Socket::acceptConnection(int listenSock) {
     socklen_t client_addr_len = sizeof(_addr);
     int client_fd = accept(listenSock, (struct sockaddr*)&_addr, &client_addr_len);
     if (client_fd < 0) {
-        // Replaced perror with throw std::runtime_error
         throw std::runtime_error("error with accept socket");
-        // No return -1 here, as the exception will propagate
     }
     return client_fd;
 }
@@ -149,11 +147,7 @@ void    Socket::closeSocket(void) {
     if (_sockfd != -1) {
         int n = close(_sockfd);
         if (n < 0) {
-            // Replaced perror with throw std::runtime_error
             throw std::runtime_error("Error with socket close");
-            // No throw as per the subject (must not crash) -- if the problem is that throwing might crash,
-            // then it might be better to just log and not throw, depending on how "must not crash" is interpreted.
-            // For now, I'm following "should throw our own exceptions".
         }
         std::cout << "SOCKET " << _sockfd << " CLOSED" << std::endl;
         _sockfd = -1;

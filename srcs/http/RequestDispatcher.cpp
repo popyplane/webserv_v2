@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   RequestDispatcher.cpp                              :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: bvieilhe <bvieilhe@student.42.fr>          +#+  +:+       +#+        */
+/*   By: baptistevieilhescaze <baptistevieilhesc    +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/06/24 14:46:23 by baptistevie       #+#    #+#             */
-/*   Updated: 2025/06/27 00:12:29 by bvieilhe         ###   ########.fr       */
+/*   Updated: 2025/06/29 01:58:45 by baptistevie      ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -101,7 +101,6 @@ MatchedConfig RequestDispatcher::dispatch(const HttpRequest& request, const std:
     MatchedConfig result;
     result.server_config = findMatchingServer(request, clientHost, clientPort);
     if (result.server_config) {
-        // CORRECTED: Call static method using class scope resolution
         result.location_config = RequestDispatcher::findMatchingLocation(request, *result.server_config);
     }
     return result;

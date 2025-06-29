@@ -6,7 +6,7 @@
 /*   By: baptistevieilhescaze <baptistevieilhesc    +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/06/02 10:47:25 by baptistevie       #+#    #+#             */
-/*   Updated: 2025/06/25 08:53:13 by baptistevie      ###   ########.fr       */
+/*   Updated: 2025/06/29 01:41:21 by baptistevie      ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -25,35 +25,27 @@ bool    readFile(const std::string &fileName, std::string &out)
     return true;
 }
 
-// LexerError constructor: Initializes error message, line, and column.
 LexerError::LexerError(const std::string& msg, int line, int col) : std::runtime_error(msg), _line(line), _col(col)
 { }
     
-// Returns the line number where the error occurred.
 int LexerError::getLine() const
 { return (_line); }
     
-// Returns the column number where the error occurred.
 int LexerError::getColumn() const
 { return (_col); }
 
-// Lexer constructor: Initializes input string and current position.
 Lexer::Lexer(const std::string &input) : _input(input), _pos(0), _line(1), _column(1)
 { lexConf(); }
 
-// Lexer destructor.
 Lexer::~Lexer()
 {}
 
-// Checks if the lexer has reached the end of the input.
 bool    Lexer::isAtEnd() const
 { return (_pos >= _input.size()); }
 
-// Peeks at the current character without advancing the position.
 char    Lexer::peek() const
 { return (isAtEnd() ? '\0' : _input[_pos]); }
 
-// Gets the current character and advances the position.
 char    Lexer::get()
 {
     char    c = _input[_pos++];
@@ -67,7 +59,6 @@ char    Lexer::get()
     return (c);
 }
 
-// Skips whitespace and comments in the input.
 void    Lexer::skipWhitespaceAndComments()
 {
     while (!isAtEnd()) {
@@ -111,7 +102,6 @@ token   Lexer::nextToken()
     return (token(T_EOF, "", -1, -1));
 }
 
-// Tokenizes a symbol character.
 token   Lexer::tokeniseSymbol()
 {
     int         startLn = _line, startCol = _column;
@@ -129,7 +119,6 @@ token   Lexer::tokeniseSymbol()
     throw (LexerError(oss.str(), _line, _column + 1));
 }
 
-// Tokenizes a string literal enclosed in quotes.
 token   Lexer::tokeniseString()
 {
     int         startLn = _line, startCol = _column;
@@ -160,7 +149,6 @@ token   Lexer::tokeniseString()
     return (token(T_EOF, "", -1, -1));
 }
 
-// Tokenizes a number, including potential units (k, m, g).
 token   Lexer::tokeniseNumber()
 {
     std::string buffer;
@@ -185,7 +173,6 @@ token   Lexer::tokeniseNumber()
     return (token(T_NUMBER, buffer, startLn, startCol));
 }
 
-// Tokenizes an identifier or a keyword.
 token Lexer::tokeniseIdentifier()
 {
     std::string buffer;
@@ -242,10 +229,8 @@ void    Lexer::dumpTokens()
     }
 }
 
-// Returns the vector of tokens.
 std::vector<token>  Lexer::getTokens() const
 { return (_tokens); }
 
-// Throws a LexerError with the given message and current line/column.
 void    Lexer::error(const std::string& msg) const
 { throw (LexerError(msg, _line, _column + 1)); }
