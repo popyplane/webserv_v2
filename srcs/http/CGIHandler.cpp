@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   CGIHandler.cpp                                     :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: baptistevieilhescaze <baptistevieilhesc    +#+  +:+       +#+        */
+/*   By: bvieilhe <bvieilhe@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/06/25 17:47:11 by baptistevie       #+#    #+#             */
-/*   Updated: 2025/06/29 04:11:27 by baptistevie      ###   ########.fr       */
+/*   Updated: 2025/06/29 04:30:54 by bvieilhe         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -354,10 +354,6 @@ void CGIHandler::_closePipes() {
 
 // Initiates the CGI process (fork, pipe, execve).
 bool CGIHandler::start() {
-	std::cout << "DEBUG: CGIHandler::start() called." << std::endl;
-	std::cout << "DEBUG: Initial FDs: stdin[0]=\t" << _fd_stdin[0] << ", stdin[1]=\t" << _fd_stdin[1]
-		<< ", stdout[0]=\t" << _fd_stdout[0] << ", stdout[1]=\t" << _fd_stdout[1] << std::endl;
-
 	if (_state != CGIState::NOT_STARTED) {
 		std::cerr << "ERROR: CGI process already started or in an invalid state (" << _state << ")." << std::endl;
 		return false;
@@ -373,16 +369,11 @@ bool CGIHandler::start() {
 	_fd_stdin[0] = -1; _fd_stdin[1] = -1;
 	_fd_stdout[0] = -1; _fd_stdout[1] = -1;
 
-	std::cout << "DEBUG: Before pipe() calls: stdin[0]=\t" << _fd_stdin[0] << ", stdin[1]=\t" << _fd_stdin[1]
-		<< ", stdout[0]=\t" << _fd_stdout[0] << ", stdout[1]=\t" << _fd_stdout[1] << std::endl;
-
 	if (pipe(_fd_stdin) == -1) {
 		std::cerr << "ERROR: Failed to create stdin pipe." << std::endl;
 		_state = CGIState::FORK_FAILED;
 		return false;
 	}
-	std::cout << "DEBUG: After stdin pipe(): stdin[0]=\t" << _fd_stdin[0] << ", stdin[1]=\t" << _fd_stdin[1]
-		<< ", stdout[0]=\t" << _fd_stdout[0] << ", stdout[1]=\t" << _fd_stdout[1] << std::endl;
 
 	if (pipe(_fd_stdout) == -1) {
 		std::cerr << "ERROR: Failed to create stdout pipe." << std::endl;
@@ -390,8 +381,6 @@ bool CGIHandler::start() {
 		_state = CGIState::FORK_FAILED;
 		return false;
 	}
-	std::cout << "DEBUG: After stdout pipe(): stdin[0]=\t" << _fd_stdin[0] << ", stdin[1]=\t" << _fd_stdin[1]
-		<< ", stdout[0]=\t" << _fd_stdout[0] << ", stdout[1]=\t" << _fd_stdout[1] << std::endl;
 
 	// Set FD_CLOEXEC on all pipe ends in the parent
 	if (fcntl(_fd_stdin[0], F_SETFD, FD_CLOEXEC) == -1 ||
@@ -403,15 +392,11 @@ bool CGIHandler::start() {
 		_state = CGIState::FORK_FAILED;
 		return false;
 	}
-	std::cout << "DEBUG: After fcntl(FD_CLOEXEC): stdin[0]=\t" << _fd_stdin[0] << ", stdin[1]=\t" << _fd_stdin[1]
-		<< ", stdout[0]=\t" << _fd_stdout[0] << ", stdout[1]=\t" << _fd_stdout[1] << std::endl;
 
 	if (!_setNonBlocking(_fd_stdin[1]) || !_setNonBlocking(_fd_stdout[0])) {
 		_closePipes(); // Close all pipes if setting non-blocking fails
 		return false;
 	}
-	std::cout << "DEBUG: After setNonBlocking(): stdin[0]=\t" << _fd_stdin[0] << ", stdin[1]=\t" << _fd_stdin[1]
-		<< ", stdout[0]=\t" << _fd_stdout[0] << ", stdout[1]=\t" << _fd_stdout[1] << std::endl;
 
 	_cgi_pid = fork();
 	if (_cgi_pid == -1) {
@@ -422,16 +407,10 @@ bool CGIHandler::start() {
 	}
 
 	if (_cgi_pid == 0) { // Child process.
-		std::cout << "DEBUG: CGI child: Entered child process." << std::endl;
-		std::cout << "DEBUG: CGI child: FDs before closing parent ends: stdin[0]=\t" << _fd_stdin[0] << ", stdin[1]=\t" << _fd_stdin[1]
-		<< ", stdout[0]=\t" << _fd_stdout[0] << ", stdout[1]=\t" << _fd_stdout[1] << std::endl;
-
 		close(_fd_stdin[1]); // Close parent's write end of stdin pipe
 		_fd_stdin[1] = -1; // Mark as closed
 		close(_fd_stdout[0]); // Close parent's read end of stdout pipe
 		_fd_stdout[0] = -1; // Mark as closed
-		std::cout << "DEBUG: CGI child: FDs after closing parent ends: stdin[0]=\t" << _fd_stdin[0] << ", stdin[1]=\t" << _fd_stdin[1]
-		<< ", stdout[0]=\t" << _fd_stdout[0] << ", stdout[1]=\t" << _fd_stdout[1] << std::endl;
 
 		if (dup2(_fd_stdin[0], STDIN_FILENO) == -1) {
 			std::cerr << "ERROR: dup2 STDIN_FILENO failed in CGI child. " << strerror(errno) << ". Exiting." << std::endl;
@@ -441,15 +420,11 @@ bool CGIHandler::start() {
 			std::cerr << "ERROR: dup2 STDOUT_FILENO failed in CGI child. " << strerror(errno) << ". Exiting." << std::endl;
 			_exit(EXIT_FAILURE);
 		}
-		std::cout << "DEBUG: CGI child: FDs after dup2: stdin[0]=\t" << _fd_stdin[0] << ", stdin[1]=\t" << _fd_stdin[1]
-		<< ", stdout[0]=\t" << _fd_stdout[0] << ", stdout[1]=\t" << _fd_stdout[1] << std::endl;
 
 		close(_fd_stdin[0]); // Close child's read end of stdin pipe
 		_fd_stdin[0] = -1; // Mark as closed
 		close(_fd_stdout[1]); // Close child's write end of stdout pipe
 		_fd_stdout[1] = -1; // Mark as closed
-		std::cout << "DEBUG: CGI child: FDs after closing child ends: stdin[0]=\t" << _fd_stdin[0] << ", stdin[1]=\t" << _fd_stdin[1]
-		<< ", stdout[0]=\t" << _fd_stdout[0] << ", stdout[1]=\t" << _fd_stdout[1] << std::endl;
 
 		std::string cgi_working_dir_relative;
 		if (_locationConfig && !_locationConfig->root.empty()) {
@@ -495,8 +470,6 @@ bool CGIHandler::start() {
 		_freeCGICharArrays(argv);
 		_exit(EXIT_FAILURE);
 	} else { // Parent process.
-		std::cout << "DEBUG: CGI parent: FDs before closing child ends: stdin[0]=\t" << _fd_stdin[0] << ", stdin[1]=\t" << _fd_stdin[1]
-		<< ", stdout[0]=\t" << _fd_stdout[0] << ", stdout[1]=\t" << _fd_stdout[1] << std::endl;
 		close(_fd_stdin[0]); // Close child's read end in parent
 		_fd_stdin[0] = -1; // Mark as closed
 		close(_fd_stdout[1]); // Close child's write end in parent
@@ -507,15 +480,12 @@ bool CGIHandler::start() {
 			if (_fd_stdin[1] != -1) {
 				close(_fd_stdin[1]);
 				_fd_stdin[1] = -1;
-				std::cout << "DEBUG: CGI parent: Closed _fd_stdin[1] for non-POST request." << std::endl;
 			}
 			_state = CGIState::READING_OUTPUT;
 		} else {
 			_state = CGIState::WRITING_INPUT;
 		}
 		setStartTime(); // Record start time in parent
-		std::cout << "DEBUG: CGI parent: FDs after closing child ends: stdin[0]=\t" << _fd_stdin[0] << ", stdin[1]=\t" << _fd_stdin[1]
-		<< ", stdout[0]=\t" << _fd_stdout[0] << ", stdout[1]=\t" << _fd_stdout[1] << std::endl;
 	}
 	return true;
 }
@@ -618,10 +588,8 @@ void CGIHandler::pollCGIProcess() {
         pid_t result = waitpid(_cgi_pid, &status, WNOHANG);
 
         if (result == _cgi_pid) {
-            std::cout << "DEBUG: CGIHandler::pollCGIProcess: Child process " << _cgi_pid << " has exited." << std::endl;
             if (WIFEXITED(status)) {
                 _cgi_exit_status = WEXITSTATUS(status);
-                std::cout << "DEBUG: CGI process exited with status: " << _cgi_exit_status << std::endl;
             } else if (WIFSIGNALED(status)) {
                 _cgi_exit_status = WTERMSIG(status);
                 std::cerr << "ERROR: CGI process terminated by signal: " << _cgi_exit_status << std::endl;
@@ -635,16 +603,13 @@ void CGIHandler::pollCGIProcess() {
 
             // If CGI process exited, ensure all output is read before parsing
             while (!_cgi_stdout_eof_received) {
-                std::cout << "DEBUG: CGI process exited, but EOF not yet received on stdout. Attempting final read to drain pipe." << std::endl;
                 handleRead(); // This will set _cgi_stdout_eof_received to true on EOF
                 if (_cgi_stdout_eof_received) {
-                    std::cout << "DEBUG: Final read successful, EOF received." << std::endl;
                     break;
                 }
             }
 
             if (!_cgi_headers_parsed) {
-                std::cerr << "DEBUG: CGI child: Calling _parseCGIOutput()." << std::endl;
                 _parseCGIOutput();
             }
 
@@ -794,13 +759,9 @@ void CGIHandler::_parseCGIOutput() {
 }
 
 void CGIHandler::cleanup() {
-    std::cout << "DEBUG: CGIHandler::cleanup() called." << std::endl;
-    std::cout << "DEBUG: FDs at cleanup start: stdin[0]=\t" << _fd_stdin[0] << ", stdin[1]=\t" << _fd_stdin[1]
-		<< ", stdout[0]=\t" << _fd_stdout[0] << ", stdout[1]=\t" << _fd_stdout[1] << std::endl;
 
     // Unregister and close parent's ends of the pipes
     if (_fd_stdin[1] != -1) { // Parent's write end to CGI stdin
-        std::cout << "DEBUG: Cleanup: Unregistering/closing _fd_stdin[1]: " << _fd_stdin[1] << std::endl;
         if (_serverPtr) {
             _serverPtr->unregisterCgiFd(_fd_stdin[1]); // This closes the FD
         } else {
@@ -809,7 +770,6 @@ void CGIHandler::cleanup() {
         _fd_stdin[1] = -1;
     }
     if (_fd_stdout[0] != -1) { // Parent's read end from CGI stdout
-        std::cout << "DEBUG: Cleanup: Unregistering/closing _fd_stdout[0]: " << _fd_stdout[0] << std::endl;
         if (_serverPtr) {
             _serverPtr->unregisterCgiFd(_fd_stdout[0]); // This closes the FD
         } else {
@@ -823,9 +783,6 @@ void CGIHandler::cleanup() {
     // Just ensure they are marked as closed in case of error paths where they might not have been.
     _fd_stdin[0] = -1;
     _fd_stdout[1] = -1;
-
-    std::cout << "DEBUG: FDs at cleanup end: stdin[0]=\t" << _fd_stdin[0] << ", stdin[1]=\t" << _fd_stdin[1]
-		<< ", stdout[0]=\t" << _fd_stdout[0] << ", stdout[1]=\t" << _fd_stdout[1] << std::endl;
 
     // If CGI process is still running, attempt to terminate it
     if (_cgi_pid != -1) {
