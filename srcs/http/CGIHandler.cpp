@@ -572,42 +572,49 @@ void CGIHandler::handleWrite() {
 
 // Checks the status of the CGI child process (non-blocking waitpid).
 void CGIHandler::pollCGIProcess() {
-	if (_cgi_pid != -1 && !isFinished()) {
-		int status;
-		pid_t result = waitpid(_cgi_pid, &status, WNOHANG);
+    if (_cgi_pid != -1 && !isFinished()) {
+        int status = 0; // Initialize status to 0
+        pid_t result = waitpid(_cgi_pid, &status, WNOHANG);
 
-		if (result == _cgi_pid) {
-			if (WIFEXITED(status)) {
-				_cgi_exit_status = WEXITSTATUS(status);
-			} else if (WIFSIGNALED(status)) {
-				_cgi_exit_status = WTERMSIG(status);
-				std::cerr << "ERROR: CGI process terminated by signal: " << _cgi_exit_status << std::endl;
-				_state = CGIState::CGI_PROCESS_ERROR;
-			} else {
-				std::cerr << "ERROR: CGI process ended abnormally (not exited/signaled)." << std::endl;
-				_state = CGIState::CGI_PROCESS_ERROR;
-			}
+        if (result == _cgi_pid) {
+            std::cout << "DEBUG: CGIHandler::pollCGIProcess: Child process " << _cgi_pid << " has exited." << std::endl;
+            if (WIFEXITED(status)) {
+                _cgi_exit_status = WEXITSTATUS(status);
+                std::cout << "DEBUG: CGI process exited with status: " << _cgi_exit_status << std::endl;
+            } else if (WIFSIGNALED(status)) {
+                _cgi_exit_status = WTERMSIG(status);
+                std::cerr << "ERROR: CGI process terminated by signal: " << _cgi_exit_status << std::endl;
+                _state = CGIState::CGI_PROCESS_ERROR;
+            } else {
+                // Process ended abnormally (e.g., stopped, continued, core dump)
+                std::cerr << "ERROR: CGI process ended abnormally (not exited/signaled). Status: " << status << std::endl;
+                _cgi_exit_status = -2; // Custom value to indicate abnormal termination
+                _state = CGIState::CGI_PROCESS_ERROR;
+            }
 
-			// If CGI process exited, ensure all output is read before parsing
-			while (!_cgi_stdout_eof_received) {
-				handleRead(); // This will set _cgi_stdout_eof_received to true on EOF
-				if (_cgi_stdout_eof_received) {
-					break;
-				}
-			}
+            // If CGI process exited, ensure all output is read before parsing
+            while (!_cgi_stdout_eof_received) {
+                std::cout << "DEBUG: CGI process exited, but EOF not yet received on stdout. Attempting final read to drain pipe." << std::endl;
+                handleRead(); // This will set _cgi_stdout_eof_received to true on EOF
+                if (_cgi_stdout_eof_received) {
+                    std::cout << "DEBUG: Final read successful, EOF received." << std::endl;
+                    break;
+                }
+            }
 
-			if (!_cgi_headers_parsed) {
-				_parseCGIOutput();
-			}
+            if (!_cgi_headers_parsed) {
+                std::cerr << "DEBUG: CGI child: Calling _parseCGIOutput()." << std::endl;
+                _parseCGIOutput();
+            }
 
-			if (_state != CGIState::CGI_PROCESS_ERROR && _state != CGIState::TIMEOUT && _state != CGIState::COMPLETE) {
-				_state = CGIState::COMPLETE;
-			}
-		} else if (result == -1) { // waitpid itself failed
-			std::cerr << "ERROR: waitpid failed for CGI process " << _cgi_pid << "." << std::endl;
-			_state = CGIState::CGI_PROCESS_ERROR;
-		}
-	}
+            if (_state != CGIState::CGI_PROCESS_ERROR && _state != CGIState::TIMEOUT && _state != CGIState::COMPLETE) {
+                _state = CGIState::COMPLETE;
+            }
+        } else if (result == -1) { // waitpid itself failed
+            std::cerr << "ERROR: waitpid failed for CGI process " << _cgi_pid << "." << std::endl;
+            _state = CGIState::CGI_PROCESS_ERROR;
+        }
+    }
 }
 
 // Returns the current state of the CGI execution.
@@ -746,38 +753,41 @@ void CGIHandler::_parseCGIOutput() {
 }
 
 void CGIHandler::cleanup() {
-	// Close pipe FDs and unregister them from the server's pollfds
-	// Use _serverPtr here instead of a passed parameter
-	if (_fd_stdin[0] != -1) {
-		close(_fd_stdin[0]);
-		_fd_stdin[0] = -1;
-	}
-	if (_fd_stdin[1] != -1) {
-		if (_serverPtr) _serverPtr->unregisterCgiFd(_fd_stdin[1]);
-		else close(_fd_stdin[1]); // Fallback if _serverPtr is somehow null
-		_fd_stdin[1] = -1;
-	}
-	if (_fd_stdout[0] != -1) {
-		if (_serverPtr) _serverPtr->unregisterCgiFd(_fd_stdout[0]);
-		else close(_fd_stdout[0]); // Fallback if _serverPtr is somehow null
-		_fd_stdout[0] = -1;
-	}
-	if (_fd_stdout[1] != -1) {
-		close(_fd_stdout[1]);
-		_fd_stdout[1] = -1;
-	}
-
-	// If CGI process is still running, attempt to terminate it
-	if (_cgi_pid != -1) {
-		int status;
-		pid_t result = waitpid(_cgi_pid, &status, WNOHANG);
-		if (result == 0) { // Child is still running
-			std::cerr << "WARNING: CGI process (PID " << _cgi_pid << ") still active during cleanup. Sending SIGTERM." << std::endl;
-			kill(_cgi_pid, SIGTERM);
-			waitpid(_cgi_pid, &status, 0); // Wait for termination
-		} else if (result == -1) {
-            // nothing to clean
+    // Unregister and close parent's ends of the pipes
+    if (_fd_stdin[1] != -1) { // Parent's write end to CGI stdin
+        if (_serverPtr) {
+            _serverPtr->unregisterCgiFd(_fd_stdin[1]); // This closes the FD
+        } else {
+            close(_fd_stdin[1]); // Fallback if _serverPtr is null (shouldn't happen)
         }
-		_cgi_pid = -1; // Mark as cleaned up
-	}
+        _fd_stdin[1] = -1;
+    }
+    if (_fd_stdout[0] != -1) { // Parent's read end from CGI stdout
+        if (_serverPtr) {
+            _serverPtr->unregisterCgiFd(_fd_stdout[0]); // This closes the FD
+        } else {
+            close(_fd_stdout[0]); // Fallback
+        }
+        _fd_stdout[0] = -1;
+    }
+
+    // The child's ends (_fd_stdin[0] and _fd_stdout[1]) are closed in the parent
+    // immediately after fork, and in the child process itself. So, no need to close them here again.
+    // Just ensure they are marked as closed in case of error paths where they might not have been.
+    _fd_stdin[0] = -1;
+    _fd_stdout[1] = -1;
+
+    // If CGI process is still running, attempt to terminate it
+    if (_cgi_pid != -1) {
+        int status;
+        pid_t result = waitpid(_cgi_pid, &status, WNOHANG);
+        if (result == 0) { // Child is still running
+            std::cerr << "WARNING: CGI process (PID " << _cgi_pid << ") still active during cleanup. Sending SIGTERM." << std::endl;
+            kill(_cgi_pid, SIGTERM);
+            waitpid(_cgi_pid, &status, 0); // Wait for termination
+        } else if (result == -1) {
+             // std::cerr << "DEBUG: waitpid for PID " << _cgi_pid << " returned -1 in cleanup (possibly already reaped)." << std::endl;
+        }
+        _cgi_pid = -1; // Mark as cleaned up
+    }
 }
