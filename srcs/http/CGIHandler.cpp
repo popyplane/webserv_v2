@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   CGIHandler.cpp                                     :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: baptistevieilhescaze <baptistevieilhesc    +#+  +:+       +#+        */
+/*   By: bvieilhe <bvieilhe@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/06/25 17:47:11 by baptistevie       #+#    #+#             */
-/*   Updated: 2025/06/29 01:52:31 by baptistevie      ###   ########.fr       */
+/*   Updated: 2025/06/29 02:38:11 by bvieilhe         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -317,7 +317,6 @@ char** CGIHandler::_createCGIArguments() const {
 	strcpy(argv[1], _cgi_script_path.c_str());
 
 	argv[2] = NULL;
-	std::cerr << "DEBUG: CGI child: _createCGIArguments() returning." << std::endl;
 	return argv;
 }
 
@@ -777,8 +776,8 @@ void CGIHandler::cleanup() {
 			kill(_cgi_pid, SIGTERM);
 			waitpid(_cgi_pid, &status, 0); // Wait for termination
 		} else if (result == -1) {
-			 // std::cerr << "DEBUG: waitpid for PID " << _cgi_pid << " returned -1 in cleanup (possibly already reaped)." << std::endl;
-		}
+            // nothing to clean
+        }
 		_cgi_pid = -1; // Mark as cleaned up
 	}
 }

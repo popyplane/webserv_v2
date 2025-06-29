@@ -6,13 +6,13 @@
 #    By: bvieilhe <bvieilhe@student.42.fr>          +#+  +:+       +#+         #
 #                                                 +#+#+#+#+#+   +#+            #
 #    Created: 2025/06/25 22:41:20 by baptistevie       #+#    #+#              #
-#    Updated: 2025/06/28 15:09:11 by bvieilhe         ###   ########.fr        #
+#    Updated: 2025/06/29 02:32:17 by bvieilhe         ###   ########.fr        #
 #                                                                              #
 # **************************************************************************** #
 
 # Compiler and flags
 CXX = c++
-CXXFLAGS = -Wall -Wextra -Werror -I./includes
+CXXFLAGS = -Wall -Wextra -Werror -std=c++98 -I./includes
 
 # Directories
 SRCDIR = srcs

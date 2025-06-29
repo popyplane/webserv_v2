@@ -11,6 +11,7 @@
 # include <cctype>		// For std::isprint (used in CGIHandler's debug print)
 # include <sstream>		// For std::istringstream (used in CGIHandler, StringUtils)
 # include <cstring>		// For C-style string functions like strcpy, **without using strerror(errno)**.
+# include <cerrno>      // for error output
 
 // System-Specific Includes for Networking and File Operations
 # include <sys/socket.h>	// For socket programming (e.g., socket, bind, listen, accept).
