@@ -25,19 +25,22 @@ CGIHandler::CGIHandler(const HttpRequest& request,
 	  _cgi_script_path(),
 	  _cgi_executable_path(),
 	  _cgi_pid(-1),
-	  _fd_stdin{-1, -1}, // Initialize array members
-	  _fd_stdout{-1, -1}, // Initialize array members
+	  _fd_stdin(), // Default construction
+	  _fd_stdout(), // Default construction
 	  _cgi_response_buffer(),
 	  _final_http_response(),
 	  _state(CGIState::NOT_STARTED),
 	  _cgi_headers_parsed(false),
 	  _cgi_exit_status(-1),
 	  _cgi_start_time(0),
-	  _cgi_stdout_eof_received(false), // Explicitly initialize
+	  _cgi_stdout_eof_received(false),
 	  _request_body_ptr(&request.body),
 	  _request_body_sent_bytes(0)
 {
-	// Body can be empty now as all members are initialized in the list
+	_fd_stdin[0] = -1;
+	_fd_stdin[1] = -1;
+	_fd_stdout[0] = -1;
+	_fd_stdout[1] = -1;
 
 	// Call the new helper method to initialize paths
 	if (!_initializeCGIPaths()) {
@@ -71,12 +74,12 @@ CGIHandler::CGIHandler(const CGIHandler& other)
     : _request(other._request),
       _serverConfig(other._serverConfig),
       _locationConfig(other._locationConfig),
-      _serverPtr(other._serverPtr), // Initialize _serverPtr
+      _serverPtr(other._serverPtr),
       _cgi_script_path(other._cgi_script_path),
       _cgi_executable_path(other._cgi_executable_path),
       _cgi_pid(-1),
-      _fd_stdin{-1, -1}, // Initialize array members
-      _fd_stdout{-1, -1}, // Initialize array members
+      _fd_stdin(),
+      _fd_stdout(),
       _cgi_response_buffer(),
       _final_http_response(),
       _state(CGIState::NOT_STARTED),
@@ -87,7 +90,8 @@ CGIHandler::CGIHandler(const CGIHandler& other)
       _request_body_ptr(other._request_body_ptr),
       _request_body_sent_bytes(0)
 {
-    // Body can be empty now as all members are initialized in the list
+    _fd_stdin[0] = -1; _fd_stdin[1] = -1;
+    _fd_stdout[0] = -1; _fd_stdout[1] = -1;
 }
 
 // Assignment Operator: Disallows assignment to prevent issues with file descriptors and PIDs.
