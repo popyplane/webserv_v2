@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   CGIHandler.cpp                                     :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: bvieilhe <bvieilhe@student.42.fr>          +#+  +:+       +#+        */
+/*   By: baptistevieilhescaze <baptistevieilhesc    +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/06/25 17:47:11 by baptistevie       #+#    #+#             */
-/*   Updated: 2025/06/29 02:38:11 by bvieilhe         ###   ########.fr       */
+/*   Updated: 2025/06/29 04:11:27 by baptistevie      ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -395,9 +395,9 @@ bool CGIHandler::start() {
 
 	// Set FD_CLOEXEC on all pipe ends in the parent
 	if (fcntl(_fd_stdin[0], F_SETFD, FD_CLOEXEC) == -1 ||
-		fcnctl(_fd_stdin[1], F_SETFD, FD_CLOEXEC) == -1 ||
-		fcnctl(_fd_stdout[0], F_SETFD, FD_CLOEXEC) == -1 ||
-		fcnctl(_fd_stdout[1], F_SETFD, FD_CLOEXEC) == -1) {
+		fcntl(_fd_stdin[1], F_SETFD, FD_CLOEXEC) == -1 ||
+		fcntl(_fd_stdout[0], F_SETFD, FD_CLOEXEC) == -1 ||
+		fcntl(_fd_stdout[1], F_SETFD, FD_CLOEXEC) == -1) {
 		std::cerr << "ERROR: Failed to set FD_CLOEXEC on CGI pipes." << std::endl;
 		_closePipes();
 		_state = CGIState::FORK_FAILED;
@@ -501,15 +501,21 @@ bool CGIHandler::start() {
 		_fd_stdin[0] = -1; // Mark as closed
 		close(_fd_stdout[1]); // Close child's write end in parent
 		_fd_stdout[1] = -1; // Mark as closed
-		std::cout << "DEBUG: CGI parent: FDs after closing child ends: stdin[0]=\t" << _fd_stdin[0] << ", stdin[1]=\t" << _fd_stdin[1]
-		<< ", stdout[0]=\t" << _fd_stdout[0] << ", stdout[1]=\t" << _fd_stdout[1] << std::endl;
 
-		if (_request.method == "POST" && _request_body_ptr && !_request_body_ptr->empty()) {
-			_state = CGIState::WRITING_INPUT;
-		} else {
+		// If it's a GET request, we don't need to write to CGI stdin, so close the parent's write end.
+		if (_request.method != "POST" || !_request_body_ptr || _request_body_ptr->empty()) {
+			if (_fd_stdin[1] != -1) {
+				close(_fd_stdin[1]);
+				_fd_stdin[1] = -1;
+				std::cout << "DEBUG: CGI parent: Closed _fd_stdin[1] for non-POST request." << std::endl;
+			}
 			_state = CGIState::READING_OUTPUT;
+		} else {
+			_state = CGIState::WRITING_INPUT;
 		}
 		setStartTime(); // Record start time in parent
+		std::cout << "DEBUG: CGI parent: FDs after closing child ends: stdin[0]=\t" << _fd_stdin[0] << ", stdin[1]=\t" << _fd_stdin[1]
+		<< ", stdout[0]=\t" << _fd_stdout[0] << ", stdout[1]=\t" << _fd_stdout[1] << std::endl;
 	}
 	return true;
 }
