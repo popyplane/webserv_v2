@@ -157,7 +157,6 @@ void Connection::_processRequest() {
 			HttpRequestHandler handler;
 			_response = handler.handleRequest(_request, matchedConfig);
 			setState(WRITING);
-			// _server->updateFdEvents(getSocketFD(), POLLOUT); // State change already handles this
 			std::cout << "Request processed (non-CGI, no extension), transitioning to WRITING on FD: " << getSocketFD() << std::endl;
 		}
 	} else {
@@ -167,7 +166,6 @@ void Connection::_processRequest() {
 		_response = handler.handleRequest(_request, matchedConfig);
 		setState(WRITING);
 
-		// _server->updateFdEvents(getSocketFD(), POLLOUT); // State change already handles this
 		std::cout << "Request processed (non-CGI), transitioning to WRITING on FD: " << getSocketFD() << std::endl;
 	}
 }
@@ -208,11 +206,8 @@ void Connection::executeCGI() {
 		HttpRequestHandler handler;
 		_response = handler._generateErrorResponse(500, matchedConfig.server_config, matchedConfig.location_config);
 		setState(WRITING);
-		// _server->updateFdEvents(getSocketFD(), POLLOUT); // State change already handles this
 		delete _cgiHandler;
 		_cgiHandler = NULL;
-		// _bytesSentFromRawResponse = 0; // Will be set in handleWrite
-		// _rawResponseToSend = _response.toString(); // Will be generated in handleWrite
 	} else {
 		// Immediately update client socket to stop polling for its events while CGI runs
 		_server->updateFdEvents(getSocketFD(), 0); // Stop polling client FD
@@ -269,10 +264,6 @@ void Connection::finalizeCGI() {
 		// Transition back to writing state and prepare response for sending
 		setState(WRITING);
 		_bytesSentFromRawResponse = 0; // Reset byte counter for client response
-		// _rawResponseToSend will be generated in handleWrite()
-
-		// Re-enable polling for client socket (POLLOUT)
-		// This is handled by setState(WRITING) which calls _server->updateFdEvents
 	} else {
 		std::cerr << "ERROR: finalizeCGI called but _cgiHandler is NULL. This should not happen." << std::endl;
 		// Generate a 500 error if CGI handler mysteriously disappeared
@@ -291,8 +282,6 @@ void Connection::_resetForNextRequest() {
 	_rawResponseToSend.clear(); // Clear raw response
 	_bytesSentFromRawResponse = 0; // Reset byte counter
 	_isCgiRequest = false;
-	// _server_block remains the same for the connection's lifetime
-	// _cgiHandler should be NULL already after finalizeCGI
 	if (_cgiHandler) { // Double check, if for some reason it's not NULL (e.g., error path)
 		_cgiHandler->cleanup(); // Ensure FDs are cleaned up if not already
 		delete _cgiHandler;
